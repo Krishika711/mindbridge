@@ -1,0 +1,196 @@
+/* =========================================================
+   NOCAPS THEME SYSTEM
+   Every mood is a CSS variable set applied via data-theme
+   on the root .app element. data-mode toggles light/dark
+   within whichever mood is active.
+========================================================= */
+
+.app{
+  --bg1:#FBF0DE; --bg2:#F5DEC0; --bg3:#E8C9A8;
+  --accent:#D98E4A; --accent-deep:#B5672A;
+  --text:#33352E; --text-soft:#6B6C60; --text-faint:#9B9885;
+  --card-bg: rgba(255,255,255,0.55);
+  --card-bg-soft: rgba(255,255,255,0.4);
+  --card-border: rgba(60,60,45,0.14);
+  --surface: rgba(255,255,255,0.55);
+  --surface-strong: rgba(255,255,255,0.75);
+  --btn-primary-bg:#2B2B24; --btn-primary-text:#F6F2E7;
+  --ink:#2B2B24; --ink-text:#F6F2E7;
+  --glow: rgba(230,190,120,0.35);
+  transition: background 1.2s ease, color 1s ease;
+}
+
+/* ---- JOYFUL : warm cream, rising sun, grass, butterflies ---- */
+.app[data-theme="joyful"]{
+  --bg1:#FDF6E3; --bg2:#FBEAC0; --bg3:#F3D98B;
+  --accent:#E6A93A; --accent-deep:#B9791E;
+  --text:#3A2E19; --text-soft:#7A5F35;
+  --card-bg: rgba(255,251,240,0.6);
+  --card-border: rgba(160,110,30,0.18);
+  --btn-primary-bg:#2E2312; --btn-primary-text:#FCEFCF;
+  --ink:#2E2312; --ink-text:#FCEFCF;
+  --glow: rgba(247,190,90,0.55);
+}
+
+/* ---- NEUTRAL : sage green, zen stones, soft clouds ---- */
+.app[data-theme="neutral"]{
+  --bg1:#F1F2EC; --bg2:#E2E7DA; --bg3:#C9D3C0;
+  --accent:#8CA283; --accent-deep:#5C7350;
+  --text:#2E3427; --text-soft:#66705C;
+  --card-bg: rgba(255,255,255,0.55);
+  --card-border: rgba(70,90,55,0.16);
+  --btn-primary-bg:#3A4632; --btn-primary-text:#F1F2EC;
+  --ink:#3A4632; --ink-text:#F1F2EC;
+  --glow: rgba(160,180,140,0.35);
+}
+
+/* ---- ANXIOUS : cool grey, restless wind ---- */
+.app[data-theme="anxious"]{
+  --bg1:#EDEFF1; --bg2:#DDE2E7; --bg3:#C6CDD6;
+  --accent:#8593A3; --accent-deep:#556577;
+  --text:#2B323B; --text-soft:#5C6675;
+  --card-bg: rgba(255,255,255,0.5);
+  --card-border: rgba(60,75,95,0.18);
+  --btn-primary-bg:#2B323B; --btn-primary-text:#EDEFF1;
+  --ink:#2B323B; --ink-text:#EDEFF1;
+  --glow: rgba(160,175,195,0.4);
+}
+
+/* ---- SAD : stormy navy, rain, lantern ---- */
+.app[data-theme="sad"]{
+  --bg1:#141A2C; --bg2:#1B2338; --bg3:#232C46;
+  --accent:#F0A857; --accent-deep:#F0A857;
+  --text:#E7E4D8; --text-soft:#A9AEC2; --text-faint:#8890AC;
+  --card-bg: rgba(255,255,255,0.06);
+  --surface: rgba(255,255,255,0.09); --surface-strong: rgba(255,255,255,0.14);
+  --card-border: rgba(240,200,140,0.2);
+  --btn-primary-bg:#F0A857; --btn-primary-text:#1B2338;
+  --ink:#F0A857; --ink-text:#1B2338;
+  --glow: rgba(240,168,87,0.45);
+}
+
+/* ---- NUMB : pale lavender mist, stillness ---- */
+.app[data-theme="numb"]{
+  --bg1:#DCDFE8; --bg2:#CBD0DE; --bg3:#B9BFD1;
+  --accent:#98A0BC; --accent-deep:#6E7796;
+  --text:#333A4D; --text-soft:#6A7189;
+  --card-bg: rgba(255,255,255,0.45);
+  --card-border: rgba(90,100,140,0.18);
+  --btn-primary-bg:#454E68; --btn-primary-text:#E9EBF2;
+  --ink:#454E68; --ink-text:#E9EBF2;
+  --glow: rgba(180,188,215,0.4);
+}
+
+/* =========================================================
+   DARK MODE — same mood identity, deeper surfaces
+========================================================= */
+.app[data-theme="default"][data-mode="dark"]{
+  --bg1:#2B2118; --bg2:#362A1C; --bg3:#423422;
+  --accent:#E2A25C; --accent-deep:#C97F3E;
+  --text:#F3E7D6; --text-soft:#C4AF93; --text-faint:#9C8E76;
+  --card-bg: rgba(255,255,255,0.07); --surface: rgba(255,255,255,0.09); --surface-strong: rgba(255,255,255,0.14);
+  --card-border: rgba(255,210,150,0.18);
+  --btn-primary-bg:#F3E7D6; --btn-primary-text:#2B2118;
+  --ink:#F3E7D6; --ink-text:#2B2118;
+  --glow: rgba(220,170,100,0.3);
+}
+.app[data-theme="joyful"][data-mode="dark"]{
+  --bg1:#2E2410; --bg2:#3B2E14; --bg3:#4A3A18;
+  --accent:#F0B94A; --accent-deep:#D99A2E;
+  --text:#FCEFCF; --text-soft:#D8C79A; --text-faint:#A6996E;
+  --card-bg: rgba(255,255,255,0.07); --surface: rgba(255,255,255,0.09); --surface-strong: rgba(255,255,255,0.14);
+  --card-border: rgba(255,210,120,0.2);
+  --btn-primary-bg:#FCEFCF; --btn-primary-text:#2E2410;
+  --ink:#FCEFCF; --ink-text:#2E2410;
+  --glow: rgba(240,180,80,0.4);
+}
+.app[data-theme="neutral"][data-mode="dark"]{
+  --bg1:#1E241A; --bg2:#262E20; --bg3:#303A28;
+  --accent:#9DB491; --accent-deep:#7C9470;
+  --text:#E7ECDF; --text-soft:#ABB89E; --text-faint:#828F73;
+  --card-bg: rgba(255,255,255,0.06); --surface: rgba(255,255,255,0.09); --surface-strong: rgba(255,255,255,0.14);
+  --card-border: rgba(160,190,140,0.18);
+  --btn-primary-bg:#E7ECDF; --btn-primary-text:#232B1D;
+  --ink:#E7ECDF; --ink-text:#232B1D;
+  --glow: rgba(140,170,120,0.3);
+}
+.app[data-theme="anxious"][data-mode="dark"]{
+  --bg1:#1B1F26; --bg2:#232933; --bg3:#2C3440;
+  --accent:#9AAAC0; --accent-deep:#7488A0;
+  --text:#E7EAF0; --text-soft:#A9B4C4; --text-faint:#7E8AA0;
+  --card-bg: rgba(255,255,255,0.06); --surface: rgba(255,255,255,0.09); --surface-strong: rgba(255,255,255,0.14);
+  --card-border: rgba(150,170,200,0.18);
+  --btn-primary-bg:#E7EAF0; --btn-primary-text:#1B1F26;
+  --ink:#E7EAF0; --ink-text:#1B1F26;
+  --glow: rgba(140,160,190,0.3);
+}
+.app[data-theme="sad"][data-mode="dark"]{
+  --bg1:#0C0F1A; --bg2:#111726; --bg3:#161E33;
+  --card-bg: rgba(255,255,255,0.05); --surface: rgba(255,255,255,0.08); --surface-strong: rgba(255,255,255,0.13);
+  --glow: rgba(240,168,87,0.55);
+}
+.app[data-theme="numb"][data-mode="dark"]{
+  --bg1:#20232E; --bg2:#282C3A; --bg3:#333849;
+  --accent:#8892B8; --accent-deep:#6971A0;
+  --text:#E5E7F0; --text-soft:#A6ABC4; --text-faint:#7D82A0;
+  --card-bg: rgba(255,255,255,0.06); --surface: rgba(255,255,255,0.09); --surface-strong: rgba(255,255,255,0.14);
+  --card-border: rgba(140,150,190,0.2);
+  --btn-primary-bg:#E5E7F0; --btn-primary-text:#20232E;
+  --ink:#E5E7F0; --ink-text:#20232E;
+  --glow: rgba(140,150,190,0.35);
+}
+
+/* =========================================================
+   Shared surface + animation utilities used across pages
+========================================================= */
+.app-shell{
+  position:relative;
+  min-height:100vh;
+  background: linear-gradient(160deg, var(--bg1) 0%, var(--bg2) 55%, var(--bg3) 100%);
+  color: var(--text);
+  overflow-x:hidden;
+  font-family: var(--font-body);
+}
+
+.grain{
+  position:absolute; inset:0; pointer-events:none; z-index:0;
+  background-image: radial-gradient(circle at 20% 20%, rgba(255,255,255,0.35), transparent 60%);
+  mix-blend-mode: overlay;
+}
+
+@keyframes floatY{ 0%,100%{transform:translateY(0)} 50%{transform:translateY(-14px)} }
+@keyframes sway{ 0%,100%{ transform:rotate(-4deg);} 50%{ transform:rotate(4deg);} }
+@keyframes flutter{
+  0%{ transform:translate(0,0) rotate(0deg);}
+  25%{ transform:translate(20px,-14px) rotate(8deg);}
+  50%{ transform:translate(40px,4px) rotate(-6deg);}
+  75%{ transform:translate(15px,18px) rotate(6deg);}
+  100%{ transform:translate(0,0) rotate(0deg);}
+}
+@keyframes driftDown{
+  0%{ transform:translate(0,0) rotate(0deg); opacity:0;}
+  10%{ opacity:0.5;}
+  100%{ transform:translate(60px, 115vh) rotate(200deg); opacity:0;}
+}
+@keyframes windBlow{
+  0%{ transform:translateX(0); opacity:0;}
+  15%{ opacity:1;}
+  100%{ transform:translateX(130vw); opacity:0;}
+}
+@keyframes rainFall{
+  0%{ transform:translateY(0); opacity:0;}
+  10%{ opacity:1;}
+  100%{ transform:translateY(115vh); opacity:0.2;}
+}
+@keyframes lanternFlicker{
+  0%,100%{ opacity:0.6; transform:scale(1);}
+  50%{ opacity:0.9; transform:scale(1.08);}
+}
+@keyframes mistDrift{
+  0%,100%{ transform:translate(0,0);}
+  50%{ transform:translate(30px,-20px);}
+}
+@keyframes lightningStrike{
+  0%{ opacity:0; } 8%{ opacity:0.85; } 16%{ opacity:0.1; } 24%{ opacity:0.6; }
+  35%{ opacity:0; } 100%{ opacity:0; }
+}
