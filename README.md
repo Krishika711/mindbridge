@@ -29,4 +29,3 @@ npm run build
 ## Deploy to Vercel / Netlify
 Push to GitHub → connect repo → done. No env vars needed.
 # mindbridge-final
-# mindbridge

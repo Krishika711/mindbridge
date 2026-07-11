@@ -12,16 +12,15 @@ import DrawCanvas from '../components/DrawCanvas';
 import VoiceNotes from '../components/VoiceNotes';
 import FloatingHope from '../components/FloatingHope';
 
-// --- Same companion logic as before (AI reply + silent crisis scoring), but
-// now routed through the MindBridge backend proxy instead of calling an AI
-// provider directly from the browser — the API key never touches the client.
-// EmailJS emergency-contact alert stays client-side, unchanged. ---
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
+// --- Same companion logic as before (AI reply + silent crisis scoring), now
+// served by Vercel serverless functions (/api/chat, /api/score) that live in
+// this same project — same origin, so no CORS setup needed, and the Groq
+// API key never touches the browser. EmailJS alert stays client-side. ---
 
 async function claudeScore(messages) {
   const history = messages.map((m) => `${m.from === 'user' ? 'User' : 'AI'}: ${m.text}`).join('\n');
   try {
-    const res = await fetch(`${BACKEND_URL}/api/score`, {
+    const res = await fetch('/api/score', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ history }),
@@ -34,7 +33,7 @@ async function claudeScore(messages) {
 }
 
 async function claudeRespond(messages) {
-  const res = await fetch(`${BACKEND_URL}/api/chat`, {
+  const res = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ messages }),
