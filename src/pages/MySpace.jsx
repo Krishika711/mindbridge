@@ -6,16 +6,12 @@ import MoodBackground from '../components/MoodBackground';
 import Header from '../components/Header';
 import { HelpButton } from '../components/ui/Misc';
 import { useMood } from '../context/MoodContext';
+import { supabase } from '../lib/supabaseClient';
 import StormyAlert from '../components/StormyAlert';
 import GuestSignInPrompt from '../components/GuestSignInPrompt';
 import DrawCanvas from '../components/DrawCanvas';
 import VoiceNotes from '../components/VoiceNotes';
 import FloatingHope from '../components/FloatingHope';
-
-// --- Same companion logic as before (AI reply + silent crisis scoring), now
-// served by Vercel serverless functions (/api/chat, /api/score) that live in
-// this same project — same origin, so no CORS setup needed, and the Groq
-// API key never touches the browser. EmailJS alert stays client-side. ---
 
 async function claudeScore(messages) {
   const history = messages.map((m) => `${m.from === 'user' ? 'User' : 'AI'}: ${m.text}`).join('\n');
@@ -59,10 +55,21 @@ async function sendEmergencyAlert(contactName, contactEmail, userName, triggerMe
   );
 }
 
-const HISTORY = [
-  { date: 'Today, 9:41 AM', snippet: 'Felt anxious before the meeting…' },
-  { date: 'Yesterday', snippet: 'Had a good walk in the evening…' },
-  { date: 'Jun 30', snippet: 'Wrote about the weekend plans…' },
+// Turns a raw created_at timestamp into "Today" / "Yesterday" / "Jun 30"
+function formatDateLabel(iso) {
+  const d = new Date(iso);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  if (d.toDateString() === today.toDateString()) {
+    return `Today, ${d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
+  }
+  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+const DEFAULT_GREETING = [
+  { from: 'wisp', text: "Hello, I'm Wisp. How are you feeling today?" },
 ];
 
 const FEATURES = [
@@ -125,14 +132,11 @@ function GuestLockedPane({ label, onUnlock }) {
 
 export default function MySpace() {
   const navigate = useNavigate();
-  const { theme, mode, mood, userName, isGuest, signOut, stormyStreak } = useMood();
+  const { theme, mode, mood, userName, isGuest, session, signOut, stormyStreak } = useMood();
   const [responding, setResponding] = useState(true);
-  const [journalTab, setJournalTab] = useState('write'); // write | draw | voice
-  const [thread, setThread] = useState([
-    { from: 'wisp', text: "Hello, I'm Wisp. How are you feeling today?" },
-    { from: 'user', text: 'A bit overwhelmed, honestly.' },
-    { from: 'wisp', text: "That's completely understandable. Would you like to talk about what's on your mind, or would you prefer a quiet moment to journal instead?" },
-  ]);
+  const [journalTab, setJournalTab] = useState('write');
+  const [thread, setThread] = useState(DEFAULT_GREETING);
+  const [historyItems, setHistoryItems] = useState([]);
   const [draft, setDraft] = useState('');
   const [journal, setJournal] = useState('');
   const [showStormy, setShowStormy] = useState(false);
@@ -144,6 +148,64 @@ export default function MySpace() {
   const [contactName, setContactName] = useState('');
   const [contactEmail, setContactEmail] = useState('');
   const threadEndRef = useRef(null);
+
+  // Load real chat history + emergency contact once we know who's logged in
+  useEffect(() => {
+    if (!session) return;
+
+    supabase
+      .from('messages')
+      .select('from_role, text, created_at')
+      .eq('user_id', session.user.id)
+      .order('created_at', { ascending: true })
+      .then(({ data, error }) => {
+        if (error) { console.error('messages load failed:', error.message); return; }
+        if (data && data.length > 0) {
+          setThread(data.map((m) => ({ from: m.from_role === 'user' ? 'user' : 'wisp', text: m.text })));
+
+          // Build the History sidebar: one entry per calendar day, using that
+          // day's first user message as the snippet.
+          const byDay = new Map();
+          data.forEach((m) => {
+            if (m.from_role !== 'user') return;
+            const dayKey = new Date(m.created_at).toDateString();
+            if (!byDay.has(dayKey)) byDay.set(dayKey, m);
+          });
+          const items = Array.from(byDay.values())
+            .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+            .slice(0, 5)
+            .map((m) => ({
+              date: formatDateLabel(m.created_at),
+              snippet: m.text.length > 60 ? m.text.slice(0, 60) + '…' : m.text,
+            }));
+          setHistoryItems(items);
+        }
+      });
+
+    supabase
+      .from('emergency_contacts')
+      .select('contact_name, contact_email')
+      .eq('user_id', session.user.id)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (error) { console.error('emergency contact load failed:', error.message); return; }
+        if (data) {
+          setContactName(data.contact_name || '');
+          setContactEmail(data.contact_email || '');
+        }
+      });
+  }, [session]);
+
+  const saveEmergencyContact = async () => {
+    if (!session || !contactName.trim() || !contactEmail.trim()) return;
+    const { error } = await supabase.from('emergency_contacts').upsert({
+      user_id: session.user.id,
+      contact_name: contactName.trim(),
+      contact_email: contactEmail.trim(),
+      updated_at: new Date().toISOString(),
+    });
+    if (error) console.error('emergency contact save failed:', error.message);
+  };
 
   const addPhoto = (src) => {
     if (isGuest) { setShowGuestGate(true); return; }
@@ -167,6 +229,16 @@ export default function MySpace() {
     if (stormyStreak >= 3) setShowStormy(true);
   }, [stormyStreak]);
 
+  const saveMessage = async (fromRole, text) => {
+    if (!session) return; // guests: local only, matches existing guest behavior elsewhere
+    const { error } = await supabase.from('messages').insert({
+      user_id: session.user.id,
+      from_role: fromRole,
+      text,
+    });
+    if (error) console.error('message save failed:', error.message);
+  };
+
   const sendMessage = async () => {
     const text = draft.trim();
     if (!text) return;
@@ -174,12 +246,14 @@ export default function MySpace() {
     setThread(nextThread);
     setDraft('');
     setThinking(true);
+    await saveMessage('user', text);
     try {
       const [reply, score] = await Promise.all([
         claudeRespond(nextThread),
         claudeScore(nextThread),
       ]);
       setThread((t) => [...t, { from: 'wisp', text: reply }]);
+      await saveMessage('ai', reply);
       if (score?.needs_alert && score.crisis_risk >= 7) {
         setCrisisVisible(true);
         if (contactName && contactEmail) {
@@ -229,7 +303,6 @@ export default function MySpace() {
       </div>
 
       <main className={`relative z-10 flex-1 grid gap-5 p-6 px-9 min-h-0 ${responding ? 'md:grid-cols-[1.7fr_1fr]' : 'md:grid-cols-[320px_1fr]'} grid-cols-1`}>
-        {/* Chat column */}
         <section
           className="flex flex-col rounded-[22px] p-6 backdrop-blur-md"
           style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', boxShadow: '0 20px 50px -30px rgba(80,50,10,0.3)' }}
@@ -314,7 +387,6 @@ export default function MySpace() {
           )}
         </section>
 
-        {/* Right column */}
         <AnimatePresence mode="wait">
           {responding ? (
             <motion.section
@@ -325,7 +397,12 @@ export default function MySpace() {
             >
               <div>
                 <div className="text-[11.5px] font-bold tracking-[1.4px] uppercase mb-4" style={{ color: 'var(--accent-deep)' }}>History</div>
-                {HISTORY.map((h, i) => (
+                {historyItems.length === 0 && (
+                  <div className="text-xs" style={{ color: 'var(--text-faint)' }}>
+                    {isGuest ? 'Sign in to save your chat history.' : 'Your conversations will show up here.'}
+                  </div>
+                )}
+                {historyItems.map((h, i) => (
                   <div key={i} className="rounded-2xl p-3.5 mb-2.5 cursor-pointer transition-transform hover:-translate-y-0.5" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)' }}>
                     <div className="text-xs mb-1" style={{ color: 'var(--text-faint)' }}>{h.date}</div>
                     <div className="text-sm font-medium">{h.snippet}</div>
@@ -346,6 +423,7 @@ export default function MySpace() {
                 <input
                   value={contactName}
                   onChange={(e) => setContactName(e.target.value)}
+                  onBlur={saveEmergencyContact}
                   placeholder="Contact name (e.g. Maa, Rohan)"
                   className="w-full text-[12.5px] rounded-xl px-3.5 py-2.5 outline-none mb-2"
                   style={{ background: 'var(--surface)', border: '1px solid var(--card-border)', color: 'var(--text)' }}
@@ -353,6 +431,7 @@ export default function MySpace() {
                 <input
                   value={contactEmail}
                   onChange={(e) => setContactEmail(e.target.value)}
+                  onBlur={saveEmergencyContact}
                   placeholder="their@email.com"
                   type="email"
                   className="w-full text-[12.5px] rounded-xl px-3.5 py-2.5 outline-none"
