@@ -11,6 +11,9 @@ export const MOODS = [
   { key: 'numb',    emoji: '🌫️', label: 'Burnt Out & Unclear' },
 ];
 
+// Rough 0-10 scale for mood_logs.score — used for Mood Insights charts later.
+const MOOD_SCORES = { joyful: 9, neutral: 6, anxious: 4, sad: 2, numb: 3 };
+
 const MOOD_MESSAGES = {
   default: "Take a moment, whenever you're ready.",
   joyful:  "Let this feeling stay a while.",
@@ -28,14 +31,13 @@ const SEED_HOPE_TOKENS = [
 
 export function MoodProvider({ children }) {
   const [theme, setTheme] = useState('default');
-  const [mode, setMode] = useState('light'); // 'light' | 'dark'
-  const [moodHistory, setMoodHistory] = useState([]); // { mood, date }
+  const [mode, setMode] = useState('light');
+  const [moodHistory, setMoodHistory] = useState([]);
   const [session, setSession] = useState(null);
   const [isGuest, setIsGuest] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [hopeTokens, setHopeTokens] = useState(SEED_HOPE_TOKENS);
 
-  // Real Supabase session — same auth/db backend as before, only the UI changed.
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
@@ -48,6 +50,30 @@ export function MoodProvider({ children }) {
     return () => listener.subscription.unsubscribe();
   }, []);
 
+  // NEW: once we know who's logged in, pull their real mood + history from Supabase
+  useEffect(() => {
+    if (!session) return;
+    (async () => {
+      const { data: latest, error: latestErr } = await supabase
+        .from('mood_logs')
+        .select('mood, created_at')
+        .eq('user_id', session.user.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (latestErr) console.error('mood fetch failed:', latestErr.message);
+      if (latest) setTheme(latest.mood);
+
+      const { data: rows, error: rowsErr } = await supabase
+        .from('mood_logs')
+        .select('mood, created_at')
+        .eq('user_id', session.user.id)
+        .order('created_at', { ascending: true });
+      if (rowsErr) console.error('mood history fetch failed:', rowsErr.message);
+      if (rows) setMoodHistory(rows.map((r) => ({ mood: r.mood, date: r.created_at })));
+    })();
+  }, [session]);
+
   const isAuthed = !!session || isGuest;
   const userName = session
     ? (session.user.user_metadata?.full_name || session.user.email || 'Friend')
@@ -57,16 +83,25 @@ export function MoodProvider({ children }) {
     setHopeTokens((prev) => [{ id: Date.now(), text, image, date: 'Just now' }, ...prev]);
   }, []);
 
-  const setMood = useCallback((moodKey) => {
+  // NEW: setMood now also writes to Supabase when logged in (guests stay local-only)
+  const setMood = useCallback(async (moodKey) => {
     setTheme(moodKey);
-    setMoodHistory((prev) => [...prev, { mood: moodKey, date: new Date().toISOString() }]);
-  }, []);
+    const entry = { mood: moodKey, date: new Date().toISOString() };
+    setMoodHistory((prev) => [...prev, entry]);
+    if (session) {
+      const { error } = await supabase.from('mood_logs').insert({
+        user_id: session.user.id,
+        mood: moodKey,
+        score: MOOD_SCORES[moodKey] ?? 5,
+      });
+      if (error) console.error('mood save failed:', error.message);
+    }
+  }, [session]);
 
   const toggleMode = useCallback(() => {
     setMode((m) => (m === 'light' ? 'dark' : 'light'));
   }, []);
 
-  // signIn/signUp talk to the real Supabase auth backend (unchanged tables/policies).
   const signIn = useCallback(async (email, password) => {
     const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
     if (error) throw error;
@@ -81,7 +116,6 @@ export function MoodProvider({ children }) {
     });
     if (error) throw error;
     if (!data.session) {
-      // Email confirmation ON in Supabase project — no session till link is clicked.
       return { needsConfirmation: true };
     }
     setIsGuest(false);
@@ -103,9 +137,10 @@ export function MoodProvider({ children }) {
   const signOut = useCallback(async () => {
     if (session) await supabase.auth.signOut();
     setIsGuest(false);
+    setTheme('default');
+    setMoodHistory([]);
   }, [session]);
 
-  // consecutive "storm" (sad) days — drives the Stormy Mode Alert
   const stormyStreak = useMemo(() => {
     let streak = 0;
     for (let i = moodHistory.length - 1; i >= 0; i--) {
