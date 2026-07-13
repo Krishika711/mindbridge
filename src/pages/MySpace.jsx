@@ -78,6 +78,12 @@ const FEATURES = [
   { key: 'calm-space', label: 'Calm Space', path: '/calm-space', icon: '🌙' },
 ];
 
+const TOOL_TABS = [
+  { key: 'write', label: '✍️' },
+  { key: 'draw', label: '🎨' },
+  { key: 'voice', label: '🎙️' },
+];
+
 function PhotoRow({ small = false, photos, onAdd, onRemove }) {
   const size = small ? 'w-11 h-11' : 'aspect-square';
   const inputId = `photo-input-${small ? 'small' : 'main'}`;
@@ -134,6 +140,7 @@ export default function MySpace() {
   const { theme, mode, mood, userName, isGuest, session, signOut, stormyStreak } = useMood();
   const [responding, setResponding] = useState(true);
   const [journalTab, setJournalTab] = useState('write');
+  const [openTool, setOpenTool] = useState(null); // null | 'write' | 'draw' | 'voice'
   const [activeSessionId, setActiveSessionId] = useState(null);
   const [thread, setThread] = useState([GREETING]);
   const [historyItems, setHistoryItems] = useState([]);
@@ -152,7 +159,8 @@ export default function MySpace() {
   const threadEndRef = useRef(null);
   const controllerRef = useRef(null);
 
-  // Pull every past message once, group into sessions for the History sidebar.
+  const toggleTool = (key) => setOpenTool((cur) => (cur === key ? null : key));
+
   const loadSessions = useCallback(async () => {
     if (!session) return;
     const { data, error } = await supabase
@@ -164,7 +172,7 @@ export default function MySpace() {
 
     const bySession = new Map();
     (data || []).forEach((m) => {
-      if (!m.session_id) return; // pre-migration rows have no session_id — skip, not resumable
+      if (!m.session_id) return;
       if (!bySession.has(m.session_id)) bySession.set(m.session_id, { firstUser: null, last: m });
       const entry = bySession.get(m.session_id);
       if (!entry.firstUser && m.from_role === 'user') entry.firstUser = m;
@@ -185,7 +193,6 @@ export default function MySpace() {
     setHistoryItems(items);
   }, [session]);
 
-  // Load one past session's full thread when a History card is clicked.
   const loadSession = async (sessionId) => {
     if (!session) return;
     if (controllerRef.current) controllerRef.current.abort();
@@ -213,7 +220,6 @@ export default function MySpace() {
     setEditingIndex(null);
   };
 
-  // Every page load = a fresh chat. Past ones live in History, reopenable via loadSession.
   useEffect(() => {
     if (!session) return;
     setActiveSessionId(crypto.randomUUID());
@@ -266,7 +272,6 @@ export default function MySpace() {
     if (stormyStreak >= 3) setShowStormy(true);
   }, [stormyStreak]);
 
-  // Returns { id, created_at } on success, or null for guests / failures.
   const saveMessage = async (fromRole, text) => {
     if (!session) return null;
     const { data, error } = await supabase
@@ -510,6 +515,62 @@ export default function MySpace() {
             )}
             <div ref={threadEndRef} />
           </div>
+
+          {responding && (
+            <>
+              <div className="flex gap-2 mt-3">
+                {TOOL_TABS.map((t) => (
+                  <button
+                    key={t.key}
+                    onClick={() => toggleTool(t.key)}
+                    className="px-3 py-1.5 rounded-full text-[12px] font-semibold"
+                    style={
+                      openTool === t.key
+                        ? { background: 'var(--ink)', color: 'var(--ink-text)' }
+                        : { border: '1px solid var(--card-border)', color: 'var(--text-soft)' }
+                    }
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              <AnimatePresence>
+                {openTool && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="overflow-hidden rounded-2xl mt-2.5"
+                    style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)' }}
+                  >
+                    <div className="p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[11px] font-bold uppercase tracking-[1.2px]" style={{ color: 'var(--accent-deep)' }}>
+                          {openTool === 'write' ? 'Quick Note' : openTool === 'draw' ? 'Draw' : 'Voice Note'}
+                        </span>
+                        <button onClick={() => setOpenTool(null)} style={{ color: 'var(--text-faint)' }}>✕</button>
+                      </div>
+                      {openTool === 'write' && (
+                        <textarea
+                          value={journal}
+                          onChange={(e) => { if (guardGuestWrite(e.target.value)) setJournal(e.target.value); }}
+                          placeholder="Jot something down while you chat..."
+                          className="w-full resize-none outline-none border-none bg-transparent text-sm leading-relaxed min-h-[100px]"
+                          style={{ color: 'var(--text)' }}
+                        />
+                      )}
+                      {openTool === 'draw' && (
+                        isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to save your drawings" /> : <DrawCanvas />
+                      )}
+                      {openTool === 'voice' && (
+                        isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to record voice notes" /> : <VoiceNotes />
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </>
+          )}
 
           {responding ? (
             <div className="flex items-center gap-2.5 mt-3.5 rounded-full pl-4 pr-1.5 py-1.5" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)' }}>
