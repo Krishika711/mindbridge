@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import emailjs from 'emailjs-com';
@@ -13,13 +13,14 @@ import DrawCanvas from '../components/DrawCanvas';
 import VoiceNotes from '../components/VoiceNotes';
 import FloatingHope from '../components/FloatingHope';
 
-async function claudeScore(messages) {
+async function claudeScore(messages, signal) {
   const history = messages.map((m) => `${m.from === 'user' ? 'User' : 'AI'}: ${m.text}`).join('\n');
   try {
     const res = await fetch('/api/score', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ history }),
+      signal,
     });
     if (!res.ok) throw new Error(`score failed ${res.status}`);
     return await res.json();
@@ -28,11 +29,12 @@ async function claudeScore(messages) {
   }
 }
 
-async function claudeRespond(messages) {
+async function claudeRespond(messages, signal) {
   const res = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ messages }),
+    signal,
   });
   if (!res.ok) throw new Error(`chat failed ${res.status}`);
   const data = await res.json();
@@ -55,7 +57,6 @@ async function sendEmergencyAlert(contactName, contactEmail, userName, triggerMe
   );
 }
 
-// Turns a raw created_at timestamp into "Today" / "Yesterday" / "Jun 30"
 function formatDateLabel(iso) {
   const d = new Date(iso);
   const today = new Date();
@@ -68,9 +69,7 @@ function formatDateLabel(iso) {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-const DEFAULT_GREETING = [
-  { from: 'wisp', text: "Hello, I'm Wisp. How are you feeling today?" },
-];
+const GREETING = { from: 'wisp', text: "Hello, I'm Wisp. How are you feeling today?", id: null, created_at: null };
 
 const FEATURES = [
   { key: 'hope-vault', label: 'Hope Vault', path: '/hope-vault', icon: '💛' },
@@ -135,7 +134,8 @@ export default function MySpace() {
   const { theme, mode, mood, userName, isGuest, session, signOut, stormyStreak } = useMood();
   const [responding, setResponding] = useState(true);
   const [journalTab, setJournalTab] = useState('write');
-  const [thread, setThread] = useState(DEFAULT_GREETING);
+  const [activeSessionId, setActiveSessionId] = useState(null);
+  const [thread, setThread] = useState([GREETING]);
   const [historyItems, setHistoryItems] = useState([]);
   const [draft, setDraft] = useState('');
   const [journal, setJournal] = useState('');
@@ -147,40 +147,77 @@ export default function MySpace() {
   const [alertSent, setAlertSent] = useState(false);
   const [contactName, setContactName] = useState('');
   const [contactEmail, setContactEmail] = useState('');
+  const [editingIndex, setEditingIndex] = useState(null);
+  const [editingText, setEditingText] = useState('');
   const threadEndRef = useRef(null);
+  const controllerRef = useRef(null);
 
-  // Load real chat history + emergency contact once we know who's logged in
+  // Pull every past message once, group into sessions for the History sidebar.
+  const loadSessions = useCallback(async () => {
+    if (!session) return;
+    const { data, error } = await supabase
+      .from('messages')
+      .select('session_id, from_role, text, created_at')
+      .eq('user_id', session.user.id)
+      .order('created_at', { ascending: true });
+    if (error) { console.error('sessions load failed:', error.message); return; }
+
+    const bySession = new Map();
+    (data || []).forEach((m) => {
+      if (!m.session_id) return; // pre-migration rows have no session_id — skip, not resumable
+      if (!bySession.has(m.session_id)) bySession.set(m.session_id, { firstUser: null, last: m });
+      const entry = bySession.get(m.session_id);
+      if (!entry.firstUser && m.from_role === 'user') entry.firstUser = m;
+      entry.last = m;
+    });
+
+    const items = Array.from(bySession.entries())
+      .sort((a, b) => new Date(b[1].last.created_at) - new Date(a[1].last.created_at))
+      .slice(0, 8)
+      .map(([sessionId, entry]) => {
+        const snippetSrc = entry.firstUser?.text || entry.last.text || '';
+        return {
+          sessionId,
+          date: formatDateLabel(entry.last.created_at),
+          snippet: snippetSrc.length > 60 ? snippetSrc.slice(0, 60) + '…' : snippetSrc,
+        };
+      });
+    setHistoryItems(items);
+  }, [session]);
+
+  // Load one past session's full thread when a History card is clicked.
+  const loadSession = async (sessionId) => {
+    if (!session) return;
+    if (controllerRef.current) controllerRef.current.abort();
+    const { data, error } = await supabase
+      .from('messages')
+      .select('id, from_role, text, created_at')
+      .eq('user_id', session.user.id)
+      .eq('session_id', sessionId)
+      .order('created_at', { ascending: true });
+    if (error) { console.error('session load failed:', error.message); return; }
+    setActiveSessionId(sessionId);
+    setEditingIndex(null);
+    setThread((data || []).map((m) => ({
+      id: m.id,
+      from: m.from_role === 'user' ? 'user' : 'wisp',
+      text: m.text,
+      created_at: m.created_at,
+    })));
+  };
+
+  const startNewChat = () => {
+    if (controllerRef.current) controllerRef.current.abort();
+    setActiveSessionId(crypto.randomUUID());
+    setThread([GREETING]);
+    setEditingIndex(null);
+  };
+
+  // Every page load = a fresh chat. Past ones live in History, reopenable via loadSession.
   useEffect(() => {
     if (!session) return;
-
-    supabase
-      .from('messages')
-      .select('from_role, text, created_at')
-      .eq('user_id', session.user.id)
-      .order('created_at', { ascending: true })
-      .then(({ data, error }) => {
-        if (error) { console.error('messages load failed:', error.message); return; }
-        if (data && data.length > 0) {
-          setThread(data.map((m) => ({ from: m.from_role === 'user' ? 'user' : 'wisp', text: m.text })));
-
-          // Build the History sidebar: one entry per calendar day, using that
-          // day's first user message as the snippet.
-          const byDay = new Map();
-          data.forEach((m) => {
-            if (m.from_role !== 'user') return;
-            const dayKey = new Date(m.created_at).toDateString();
-            if (!byDay.has(dayKey)) byDay.set(dayKey, m);
-          });
-          const items = Array.from(byDay.values())
-            .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-            .slice(0, 5)
-            .map((m) => ({
-              date: formatDateLabel(m.created_at),
-              snippet: m.text.length > 60 ? m.text.slice(0, 60) + '…' : m.text,
-            }));
-          setHistoryItems(items);
-        }
-      });
+    setActiveSessionId(crypto.randomUUID());
+    loadSessions();
 
     supabase
       .from('emergency_contacts')
@@ -194,7 +231,7 @@ export default function MySpace() {
           setContactEmail(data.contact_email || '');
         }
       });
-  }, [session]);
+  }, [session, loadSessions]);
 
   const saveEmergencyContact = async () => {
     if (!session || !contactName.trim() || !contactEmail.trim()) return;
@@ -229,44 +266,122 @@ export default function MySpace() {
     if (stormyStreak >= 3) setShowStormy(true);
   }, [stormyStreak]);
 
+  // Returns { id, created_at } on success, or null for guests / failures.
   const saveMessage = async (fromRole, text) => {
-    if (!session) return; // guests: local only, matches existing guest behavior elsewhere
-    const { error } = await supabase.from('messages').insert({
-      user_id: session.user.id,
-      from_role: fromRole,
-      text,
-    });
-    if (error) console.error('message save failed:', error.message);
+    if (!session) return null;
+    const { data, error } = await supabase
+      .from('messages')
+      .insert({ user_id: session.user.id, session_id: activeSessionId, from_role: fromRole, text })
+      .select('id, created_at')
+      .single();
+    if (error) { console.error('message save failed:', error.message); return null; }
+    return data;
+  };
+
+  const runCrisisCheck = async (nextThread, triggerText, signal) => {
+    const score = await claudeScore(nextThread, signal);
+    if (score?.needs_alert && score.crisis_risk >= 7) {
+      setCrisisVisible(true);
+      if (contactName && contactEmail) {
+        try {
+          await sendEmergencyAlert(contactName, contactEmail, userName, triggerText, score.crisis_risk);
+          setAlertSent(true);
+        } catch { /* silent — never block the person's experience on email failure */ }
+      }
+    }
   };
 
   const sendMessage = async () => {
     const text = draft.trim();
-    if (!text) return;
-    const nextThread = [...thread, { from: 'user', text }];
+    if (!text || editingIndex !== null) return;
+    const optimisticUser = { from: 'user', text, id: null, created_at: null };
+    const nextThread = [...thread, optimisticUser];
     setThread(nextThread);
     setDraft('');
     setThinking(true);
-    await saveMessage('user', text);
+
+    const savedUser = await saveMessage('user', text);
+    if (savedUser) {
+      setThread((t) => t.map((m) => (m === optimisticUser ? { ...m, ...savedUser } : m)));
+    }
+
+    const controller = new AbortController();
+    controllerRef.current = controller;
     try {
-      const [reply, score] = await Promise.all([
-        claudeRespond(nextThread),
-        claudeScore(nextThread),
+      const [reply] = await Promise.all([
+        claudeRespond(nextThread, controller.signal),
+        runCrisisCheck(nextThread, text, controller.signal),
       ]);
-      setThread((t) => [...t, { from: 'wisp', text: reply }]);
-      await saveMessage('ai', reply);
-      if (score?.needs_alert && score.crisis_risk >= 7) {
-        setCrisisVisible(true);
-        if (contactName && contactEmail) {
-          try {
-            await sendEmergencyAlert(contactName, contactEmail, userName, text, score.crisis_risk);
-            setAlertSent(true);
-          } catch { /* silent — never block the person's experience on email failure */ }
-        }
+      const savedAi = await saveMessage('ai', reply);
+      setThread((t) => [...t, { from: 'wisp', text: reply, id: savedAi?.id ?? null, created_at: savedAi?.created_at ?? null }]);
+      loadSessions();
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        setThread((t) => [...t, { from: 'wisp', text: "I'm having trouble connecting right now, par main yahin hoon. Try again in a moment?", id: null, created_at: null }]);
       }
-    } catch {
-      setThread((t) => [...t, { from: 'wisp', text: "I'm having trouble connecting right now, par main yahin hoon. Try again in a moment?" }]);
     } finally {
       setThinking(false);
+      controllerRef.current = null;
+    }
+  };
+
+  const startEdit = (index) => {
+    if (thread[index].from !== 'user' || thinking) return;
+    setEditingIndex(index);
+    setEditingText(thread[index].text);
+  };
+
+  const cancelEdit = () => {
+    setEditingIndex(null);
+    setEditingText('');
+  };
+
+  const saveEdit = async () => {
+    const newText = editingText.trim();
+    if (!newText || editingIndex === null) return;
+    const index = editingIndex;
+    const target = thread[index];
+
+    if (controllerRef.current) controllerRef.current.abort();
+    setEditingIndex(null);
+
+    const truncated = thread
+      .slice(0, index + 1)
+      .map((m, i) => (i === index ? { ...m, text: newText } : m));
+    setThread(truncated);
+    setThinking(true);
+
+    if (session && target.created_at) {
+      const { error: delErr } = await supabase
+        .from('messages')
+        .delete()
+        .eq('user_id', session.user.id)
+        .eq('session_id', activeSessionId)
+        .gt('created_at', target.created_at);
+      if (delErr) console.error('downstream delete failed:', delErr.message);
+    }
+    if (session && target.id) {
+      const { error: updErr } = await supabase.from('messages').update({ text: newText }).eq('id', target.id);
+      if (updErr) console.error('message update failed:', updErr.message);
+    }
+
+    const controller = new AbortController();
+    controllerRef.current = controller;
+    try {
+      const [reply] = await Promise.all([
+        claudeRespond(truncated, controller.signal),
+        runCrisisCheck(truncated, newText, controller.signal),
+      ]);
+      const savedAi = await saveMessage('ai', reply);
+      setThread((t) => [...t, { from: 'wisp', text: reply, id: savedAi?.id ?? null, created_at: savedAi?.created_at ?? null }]);
+      loadSessions();
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        setThread((t) => [...t, { from: 'wisp', text: "I'm having trouble connecting right now, par main yahin hoon. Try again in a moment?", id: null, created_at: null }]);
+      }
+    } finally {
+      setThinking(false);
+      controllerRef.current = null;
     }
   };
 
@@ -323,8 +438,17 @@ export default function MySpace() {
           )}
 
           {responding ? (
-            <div className="text-[11.5px] font-bold tracking-[1.4px] uppercase mb-4" style={{ color: 'var(--accent-deep)' }}>
-              Chat with Wisp
+            <div className="flex items-center justify-between mb-4">
+              <div className="text-[11.5px] font-bold tracking-[1.4px] uppercase" style={{ color: 'var(--accent-deep)' }}>
+                Chat with Wisp
+              </div>
+              <button
+                onClick={startNewChat}
+                className="text-[11.5px] font-semibold px-3 py-1.5 rounded-full"
+                style={{ border: '1px solid var(--card-border)', color: 'var(--accent-deep)' }}
+              >
+                + New Chat
+              </button>
             </div>
           ) : (
             <div className="mb-3.5">
@@ -336,8 +460,8 @@ export default function MySpace() {
           <div className="flex-1 overflow-y-auto flex flex-col gap-3 py-1.5 pr-1 min-h-[160px]">
             {thread.map((m, i) => (
               <div
-                key={i}
-                className={`max-w-[82%] px-4 py-3.5 rounded-2xl text-[14.5px] leading-relaxed ${m.from === 'user' ? 'self-end rounded-br-sm' : 'self-start rounded-bl-sm'}`}
+                key={m.id ?? `local-${i}`}
+                className={`group max-w-[82%] px-4 py-3.5 rounded-2xl text-[14.5px] leading-relaxed relative ${m.from === 'user' ? 'self-end rounded-br-sm' : 'self-start rounded-bl-sm'}`}
                 style={
                   m.from === 'wisp'
                     ? { background: 'var(--surface-strong)', border: '1px solid var(--card-border)' }
@@ -346,7 +470,37 @@ export default function MySpace() {
                       : { background: 'var(--surface)', border: '1px solid var(--card-border)', color: 'var(--text)' }
                 }
               >
-                {m.text}
+                {editingIndex === i ? (
+                  <div className="flex flex-col gap-2 min-w-[200px]">
+                    <input
+                      autoFocus
+                      value={editingText}
+                      onChange={(e) => setEditingText(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') cancelEdit(); }}
+                      className="bg-transparent outline-none border-b text-[14.5px]"
+                      style={{ borderColor: 'rgba(255,255,255,0.3)', color: 'inherit' }}
+                    />
+                    <div className="flex gap-2 text-[11px] font-semibold">
+                      <button onClick={saveEdit} style={{ opacity: 0.9 }}>Save &amp; regenerate</button>
+                      <button onClick={cancelEdit} style={{ opacity: 0.6 }}>Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {m.text}
+                    {m.from === 'user' && (
+                      <button
+                        onClick={() => startEdit(i)}
+                        className="absolute -left-6 top-3 opacity-0 group-hover:opacity-60 hover:!opacity-100 text-xs"
+                        style={{ color: 'var(--text-soft)' }}
+                        aria-label="Edit message"
+                        title="Edit — will regenerate the reply after this"
+                      >
+                        ✎
+                      </button>
+                    )}
+                  </>
+                )}
               </div>
             ))}
             {thinking && (
@@ -364,11 +518,13 @@ export default function MySpace() {
                 onChange={(e) => { if (guardGuestWrite(e.target.value)) setDraft(e.target.value); }}
                 onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
                 placeholder="Write something..."
+                disabled={editingIndex !== null}
                 className="flex-1 bg-transparent outline-none border-none text-sm"
                 style={{ color: 'var(--text)' }}
               />
               <button
                 onClick={sendMessage}
+                disabled={editingIndex !== null}
                 className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
                 style={{ background: 'var(--ink)', color: 'var(--ink-text)' }}
                 aria-label="Send"
@@ -399,11 +555,16 @@ export default function MySpace() {
                 <div className="text-[11.5px] font-bold tracking-[1.4px] uppercase mb-4" style={{ color: 'var(--accent-deep)' }}>History</div>
                 {historyItems.length === 0 && (
                   <div className="text-xs" style={{ color: 'var(--text-faint)' }}>
-                    {isGuest ? 'Sign in to save your chat history.' : 'Your conversations will show up here.'}
+                    {isGuest ? 'Sign in to save your chat history.' : 'Past chats will show up here.'}
                   </div>
                 )}
-                {historyItems.map((h, i) => (
-                  <div key={i} className="rounded-2xl p-3.5 mb-2.5 cursor-pointer transition-transform hover:-translate-y-0.5" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)' }}>
+                {historyItems.map((h) => (
+                  <div
+                    key={h.sessionId}
+                    onClick={() => loadSession(h.sessionId)}
+                    className={`rounded-2xl p-3.5 mb-2.5 cursor-pointer transition-transform hover:-translate-y-0.5 ${h.sessionId === activeSessionId ? 'ring-1' : ''}`}
+                    style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)' }}
+                  >
                     <div className="text-xs mb-1" style={{ color: 'var(--text-faint)' }}>{h.date}</div>
                     <div className="text-sm font-medium">{h.snippet}</div>
                   </div>
