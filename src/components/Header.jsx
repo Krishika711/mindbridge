@@ -34,6 +34,11 @@ export default function Header({ showBack = false, onSignOut, right, showMoodSwi
           {mode === 'light' ? '🌙' : '☀️'}
         </IconCircleButton>
         {onSignOut && (
+          <IconCircleButton onClick={() => navigate('/profile')} aria-label="Profile">
+            👤
+          </IconCircleButton>
+        )}
+        {onSignOut && (
           <button
             className="text-[13.5px] bg-transparent border-none cursor-pointer"
             style={{ color: 'var(--text-soft)' }}

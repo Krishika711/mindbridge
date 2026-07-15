@@ -4,6 +4,7 @@ import Landing from "./pages/Landing";
 import AboutUs from "./pages/AboutUs";
 import MySpace from "./pages/MySpace";
 import HopeVault from "./pages/HopeVault";
+import Profile from './pages/Profile';
 import SafeCircle from "./pages/SafeCircle";
 import MoodInsights from "./pages/MoodInsights";
 import CalmSpace from "./pages/CalmSpace";
@@ -13,6 +14,7 @@ export default function App() {
     <MoodProvider>
       <BrowserRouter>
         <Routes>
+          <Route path="/profile" element={<Profile />} />
           <Route path="/" element={<Landing />} />
           <Route path="/about" element={<AboutUs />} />
           <Route path="/chat" element={<Navigate to="/space" replace />} />
