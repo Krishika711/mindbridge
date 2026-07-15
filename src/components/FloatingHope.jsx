@@ -4,6 +4,14 @@ import { useMood } from '../context/MoodContext';
 
 const TOUGH_MOODS = ['sad', 'numb', 'anxious'];
 
+function tapeSummary(t) {
+  if (t.text) return t.text;
+  if (t.letter) return "A sealed letter, waiting for a day like today.";
+  if (t.voice) return t.voice;
+  if (t.photo) return "A photo you saved, for a moment like this.";
+  return "A good moment, saved without words.";
+}
+
 /**
  * A gentle floating button that shows up when the current mood is a hard
  * one. Tapping it "unlocks" a quick, no-navigation overlay of the person's
@@ -50,8 +58,8 @@ export default function FloatingHope() {
               <div className="flex flex-col gap-3">
                 {hopeTokens.slice(0, 6).map((t) => (
                   <div key={t.id} className="rounded-2xl p-4 flex gap-3 items-start" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
-                    {t.image && <img src={t.image} alt="" className="w-16 h-16 rounded-xl object-cover flex-shrink-0" />}
-                    <p className="text-[14.5px] leading-relaxed" style={{ color: 'var(--text)' }}>{t.text}</p>
+                    {t.photo && <img src={t.photo} alt="" className="w-16 h-16 rounded-xl object-cover flex-shrink-0" />}
+                    <p className="text-[14.5px] leading-relaxed" style={{ color: 'var(--text)' }}>{tapeSummary(t)}</p>
                   </div>
                 ))}
               </div>
