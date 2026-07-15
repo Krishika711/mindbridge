@@ -1,13 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
+import { useMood } from '../context/MoodContext';
+import { supabase } from '../lib/supabaseClient';
 
 const COLORS = ['#2B2B24', '#B5672A', '#5C7350', '#556577', '#A9AEC2'];
 
 export default function DrawCanvas() {
+  const { session } = useMood();
   const canvasRef = useRef(null);
   const drawing = useRef(false);
   const [color, setColor] = useState(COLORS[0]);
   const [size, setSize] = useState(3);
   const [tool, setTool] = useState('pen'); // 'pen' | 'eraser'
+  const [saving, setSaving] = useState(false);
+  const [gallery, setGallery] = useState([]); // [{ id, url }]
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -19,7 +24,6 @@ export default function DrawCanvas() {
       canvas.height = rect.height * ratio;
       const ctx = canvas.getContext('2d');
       ctx.scale(ratio, ratio);
-      // restore drawing after resize where possible
       const img = new Image();
       img.onload = () => ctx.drawImage(img, 0, 0, rect.width, rect.height);
       img.src = prev;
@@ -28,6 +32,30 @@ export default function DrawCanvas() {
     window.addEventListener('resize', resize);
     return () => window.removeEventListener('resize', resize);
   }, []);
+
+  const loadGallery = async () => {
+    if (!session) return;
+    const { data, error } = await supabase
+      .from('drawings')
+      .select('id, storage_path, created_at')
+      .eq('user_id', session.user.id)
+      .order('created_at', { ascending: false })
+      .limit(8);
+    if (error) { console.error('drawings load failed:', error.message); return; }
+
+    const withUrls = await Promise.all(
+      (data || []).map(async (d) => {
+        const { data: signed, error: signErr } = await supabase
+          .storage.from('media')
+          .createSignedUrl(d.storage_path, 3600);
+        if (signErr) { console.error('signed url failed:', signErr.message); return null; }
+        return { id: d.id, storagePath: d.storage_path, url: signed.signedUrl };
+      })
+    );
+    setGallery(withUrls.filter(Boolean));
+  };
+
+  useEffect(() => { loadGallery(); }, [session]);
 
   const getPos = (e) => {
     const rect = canvasRef.current.getBoundingClientRect();
@@ -70,6 +98,43 @@ export default function DrawCanvas() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
   };
 
+  const saveDrawing = () => {
+    if (!session) return;
+    const canvas = canvasRef.current;
+    canvas.toBlob(async (blob) => {
+      if (!blob) return;
+      setSaving(true);
+      const path = `${session.user.id}/drawing-${Date.now()}.png`;
+
+      const { error: uploadErr } = await supabase.storage.from('media').upload(path, blob, {
+        contentType: 'image/png',
+      });
+      if (uploadErr) {
+        console.error('drawing upload failed:', uploadErr.message);
+        setSaving(false);
+        return;
+      }
+
+      const { error: insertErr } = await supabase.from('drawings').insert({
+        user_id: session.user.id,
+        storage_path: path,
+      });
+      if (insertErr) console.error('drawing record save failed:', insertErr.message);
+
+      setSaving(false);
+      clear();
+      loadGallery();
+    }, 'image/png');
+  };
+
+  const deleteDrawing = async (item) => {
+    setGallery((g) => g.filter((d) => d.id !== item.id));
+    const { error: storageErr } = await supabase.storage.from('media').remove([item.storagePath]);
+    if (storageErr) console.error('drawing file delete failed:', storageErr.message);
+    const { error: rowErr } = await supabase.from('drawings').delete().eq('id', item.id);
+    if (rowErr) console.error('drawing record delete failed:', rowErr.message);
+  };
+
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-3 mb-3 flex-wrap">
@@ -106,10 +171,18 @@ export default function DrawCanvas() {
         />
         <button
           onClick={clear}
-          className="ml-auto text-xs font-semibold px-3 py-1.5 rounded-full"
+          className="text-xs font-semibold px-3 py-1.5 rounded-full"
           style={{ border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}
         >
           Clear All
+        </button>
+        <button
+          onClick={saveDrawing}
+          disabled={saving}
+          className="ml-auto text-xs font-semibold px-3.5 py-1.5 rounded-full"
+          style={{ background: 'var(--ink)', color: 'var(--ink-text)', opacity: saving ? 0.6 : 1 }}
+        >
+          {saving ? 'Saving…' : 'Save'}
         </button>
       </div>
       <canvas
@@ -119,6 +192,22 @@ export default function DrawCanvas() {
         onMouseDown={start} onMouseMove={move} onMouseUp={end} onMouseLeave={end}
         onTouchStart={start} onTouchMove={move} onTouchEnd={end}
       />
+
+      {gallery.length > 0 && (
+        <div className="flex gap-2.5 mt-3 overflow-x-auto pb-1">
+          {gallery.map((d) => (
+            <div key={d.id} className="relative flex-shrink-0 group">
+              <img src={d.url} alt="" className="w-16 h-16 rounded-xl object-cover" style={{ border: '1px solid var(--card-border)' }} />
+              <button
+                onClick={() => deleteDrawing(d)}
+                className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }}
+                aria-label="Delete drawing"
+              >✕</button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

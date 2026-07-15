@@ -1,16 +1,46 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import MoodBackground from '../components/MoodBackground';
 import Header from '../components/Header';
 import { HelpButton } from '../components/ui/Misc';
 import { useMood } from '../context/MoodContext';
+import { supabase } from '../lib/supabaseClient';
+
+function formatDateLabel(iso) {
+  const d = new Date(iso);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  if (d.toDateString() === today.toDateString()) {
+    return `Today, ${d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
+  }
+  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
 
 export default function CalmSpace() {
   const navigate = useNavigate();
-  const { theme, mode } = useMood();
+  const { theme, mode, session, isGuest } = useMood();
   const [flowMode, setFlowMode] = useState(false);
   const [text, setText] = useState('');
+  const [entries, setEntries] = useState([]);
+  const [saving, setSaving] = useState(false);
   const textareaRef = useRef(null);
+
+  useEffect(() => {
+    if (!session) return;
+    supabase
+      .from('notes')
+      .select('id, text, created_at')
+      .eq('user_id', session.user.id)
+      .eq('source', 'calm_space')
+      .order('created_at', { ascending: false })
+      .limit(10)
+      .then(({ data, error }) => {
+        if (error) { console.error('calm space entries load failed:', error.message); return; }
+        setEntries(data || []);
+      });
+  }, [session]);
 
   const handleKeyDown = (e) => {
     if (flowMode && (e.key === 'Backspace' || e.key === 'Delete')) {
@@ -18,9 +48,23 @@ export default function CalmSpace() {
     }
   };
 
-  const handleFinish = () => {
+  const handleFinish = async () => {
+    const trimmed = text.trim();
     setFlowMode(false);
     setText('');
+    if (!trimmed) return;
+
+    if (!session) return; // guest: nothing to save to, matches existing guest behavior elsewhere
+
+    setSaving(true);
+    const { data, error } = await supabase
+      .from('notes')
+      .insert({ user_id: session.user.id, text: trimmed, source: 'calm_space' })
+      .select('id, text, created_at')
+      .single();
+    setSaving(false);
+    if (error) { console.error('calm space save failed:', error.message); return; }
+    setEntries((e) => [data, ...e]);
   };
 
   return (
@@ -38,7 +82,7 @@ export default function CalmSpace() {
           </div>
           <p className="mb-8 max-w-lg text-[15px] leading-relaxed" style={{ color: 'var(--text-soft)' }}>
             Continuous Flow Mode is built for overthinking and writer's block. Once you turn it on, backspace is
-            disabled and your words fade as you type — a pure, unfiltered release with nothing to go back and edit.
+            disabled — a pure, unfiltered release. When you finish, it's saved so you can look back on it later.
           </p>
 
           {!flowMode ? (
@@ -68,11 +112,34 @@ export default function CalmSpace() {
               />
               <button
                 onClick={handleFinish}
+                disabled={saving}
                 className="mt-4 px-6 py-2.5 rounded-full text-[13.5px] font-semibold"
-                style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', color: 'var(--text)' }}
+                style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', color: 'var(--text)', opacity: saving ? 0.6 : 1 }}
               >
-                Release &amp; Finish
+                {saving ? 'Saving…' : 'Release & Finish'}
               </button>
+            </div>
+          )}
+
+          {!flowMode && (
+            <div className="mt-10">
+              <div className="text-[11px] font-bold tracking-[1.4px] uppercase mb-3" style={{ color: 'var(--accent-deep)' }}>Past Releases</div>
+              {isGuest && (
+                <div className="text-xs" style={{ color: 'var(--text-faint)' }}>Sign in to save and revisit what you write here.</div>
+              )}
+              {!isGuest && entries.length === 0 && (
+                <div className="text-xs" style={{ color: 'var(--text-faint)' }}>Nothing released yet — it'll show up here once you do.</div>
+              )}
+              <div className="flex flex-col gap-2.5">
+                {entries.map((e) => (
+                  <div key={e.id} className="rounded-2xl p-4" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
+                    <div className="text-xs mb-1.5" style={{ color: 'var(--text-faint)' }}>{formatDateLabel(e.created_at)}</div>
+                    <p className="text-sm italic leading-relaxed" style={{ fontFamily: 'var(--font-display)', color: 'var(--text)' }}>
+                      {e.text.length > 200 ? e.text.slice(0, 200) + '…' : e.text}
+                    </p>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
