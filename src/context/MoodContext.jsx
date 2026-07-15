@@ -11,7 +11,6 @@ export const MOODS = [
   { key: 'numb',    emoji: '🌫️', label: 'Burnt Out & Unclear' },
 ];
 
-// Rough 0-10 scale for mood_logs.score — used for Mood Insights charts later.
 const MOOD_SCORES = { joyful: 9, neutral: 6, anxious: 4, sad: 2, numb: 3 };
 
 const MOOD_MESSAGES = {
@@ -23,10 +22,11 @@ const MOOD_MESSAGES = {
   numb:    "No need to feel anything right now.",
 };
 
+// A "tape" can hold any combination of voice caption / text scrap / photo / sealed letter.
 const SEED_HOPE_TOKENS = [
-  { id: 1, text: 'The morning I finally finished my thesis draft and just sat in silence, proud.', date: 'Feb 2026', image: null },
-  { id: 2, text: "Priya told me I'm the calmest person she knows during a crisis. I want to remember that.", date: 'Apr 2026', image: null },
-  { id: 3, text: 'Walked 6km along the river at sunset. No thoughts, just moving.', date: 'May 2026', image: null },
+  { id: 1, text: 'The morning I finally finished my thesis draft and just sat in silence, proud.', voice: null, photo: null, letter: null, date: 'Feb 2026' },
+  { id: 2, text: "Priya told me I'm the calmest person she knows during a crisis. I want to remember that.", voice: null, photo: null, letter: null, date: 'Apr 2026' },
+  { id: 3, text: 'Walked 6km along the river at sunset. No thoughts, just moving.', voice: null, photo: null, letter: null, date: 'May 2026' },
 ];
 
 export function MoodProvider({ children }) {
@@ -50,7 +50,6 @@ export function MoodProvider({ children }) {
     return () => listener.subscription.unsubscribe();
   }, []);
 
-  // NEW: once we know who's logged in, pull their real mood + history from Supabase
   useEffect(() => {
     if (!session) return;
     (async () => {
@@ -79,11 +78,15 @@ export function MoodProvider({ children }) {
     ? (session.user.user_metadata?.full_name || session.user.email || 'Friend')
     : (isGuest ? 'Guest' : '');
 
-  const addHopeToken = useCallback((text, image = null) => {
-    setHopeTokens((prev) => [{ id: Date.now(), text, image, date: 'Just now' }, ...prev]);
+  // Now takes a full tape: { text, voice, photo, letter } — any subset, all optional.
+  // Still browser-only for now, same as before — not saved to Supabase yet.
+  const addHopeToken = useCallback((parts) => {
+    setHopeTokens((prev) => [
+      { id: Date.now(), text: null, voice: null, photo: null, letter: null, date: 'Just now', ...parts },
+      ...prev,
+    ]);
   }, []);
 
-  // NEW: setMood now also writes to Supabase when logged in (guests stay local-only)
   const setMood = useCallback(async (moodKey) => {
     setTheme(moodKey);
     const entry = { mood: moodKey, date: new Date().toISOString() };
