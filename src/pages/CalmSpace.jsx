@@ -25,28 +25,36 @@ const MODES = [
   { key: 'manifest', label: 'Manifestation Matrix' },
 ];
 
+// Bobs gently in place, forever — only disappears when tapped. No auto-timer.
 function Bubble({ id, text, onPop, tone }) {
   const [drift] = useState(() => ({
-    x: Math.random() * 60 - 30,
-    duration: 10 + Math.random() * 6,
+    x: Math.random() * 40 - 20,
     left: 8 + Math.random() * 78,
+    top: 10 + Math.random() * 60,
+    duration: 4 + Math.random() * 3,
   }));
-
-  useEffect(() => {
-    const t = setTimeout(() => onPop(id, false), drift.duration * 1000);
-    return () => clearTimeout(t);
-  }, []);
 
   return (
     <motion.button
-      onClick={() => onPop(id, true)}
-      initial={{ y: 40, opacity: 0, scale: 0.6 }}
-      animate={{ y: -520, opacity: [0, 1, 1, 0], x: [0, drift.x, drift.x * 1.6], scale: 1 }}
+      onClick={() => onPop(id)}
+      initial={{ opacity: 0, scale: 0.6 }}
+      animate={{
+        opacity: 1,
+        scale: 1,
+        y: [0, -18, 0],
+        x: [0, drift.x, 0],
+      }}
       exit={{ scale: 0, opacity: 0 }}
-      transition={{ duration: drift.duration, ease: 'easeOut', opacity: { times: [0, 0.08, 0.85, 1] } }}
-      className="absolute bottom-10 px-5 py-3 rounded-full text-sm max-w-[220px] text-left leading-snug"
+      transition={{
+        opacity: { duration: 0.4 },
+        scale: { duration: 0.4 },
+        y: { duration: drift.duration, repeat: Infinity, ease: 'easeInOut' },
+        x: { duration: drift.duration * 1.3, repeat: Infinity, ease: 'easeInOut' },
+      }}
+      className="absolute px-5 py-3 rounded-full text-sm max-w-55 text-left leading-snug"
       style={{
         left: `${drift.left}%`,
+        top: `${drift.top}%`,
         background: tone === 'manifest' ? 'var(--accent)' : 'var(--surface-strong)',
         border: '1px solid var(--card-border)',
         color: 'var(--text)',
@@ -63,18 +71,15 @@ export default function CalmSpace() {
   const { theme, mode, session, isGuest } = useMood();
   const [tab, setTab] = useState('flow');
 
-  // Continuous Flow state
   const [flowActive, setFlowActive] = useState(false);
   const [flowText, setFlowText] = useState('');
   const [flowSaving, setFlowSaving] = useState(false);
   const [entries, setEntries] = useState([]);
   const textareaRef = useRef(null);
 
-  // Blank Canvas state
   const [canvasDraft, setCanvasDraft] = useState('');
   const [bubbles, setBubbles] = useState([]);
 
-  // Manifestation state
   const [manifestDraft, setManifestDraft] = useState('');
   const [manifestBubbles, setManifestBubbles] = useState([]);
   const [placed, setPlaced] = useState([]);
@@ -94,7 +99,6 @@ export default function CalmSpace() {
       });
   }, [session]);
 
-  // --- Continuous Flow ---
   const handleFlowKeyDown = (e) => {
     if (flowActive && (e.key === 'Backspace' || e.key === 'Delete')) e.preventDefault();
   };
@@ -115,7 +119,6 @@ export default function CalmSpace() {
     setEntries((e) => [data, ...e]);
   };
 
-  // --- Blank Canvas ---
   const spawnBubble = () => {
     const text = canvasDraft.trim();
     if (!text) return;
@@ -124,7 +127,6 @@ export default function CalmSpace() {
   };
   const popBubble = (id) => setBubbles((b) => b.filter((x) => x.id !== id));
 
-  // --- Manifestation Matrix ---
   const spawnManifestBubble = () => {
     if (placed.length >= 3) return;
     const text = manifestDraft.trim();
@@ -133,25 +135,21 @@ export default function CalmSpace() {
     setManifestDraft('');
   };
 
-  const resolveManifestBubble = async (id, wasTapped) => {
+  const resolveManifestBubble = async (id) => {
     const bubble = manifestBubbles.find((b) => b.id === id);
     setManifestBubbles((b) => b.filter((x) => x.id !== id));
     if (!bubble) return;
 
-    if (wasTapped) {
-      // tapped = "place it" on the dashboard, and save it for real
-      setPlaced((p) => [...p, bubble]);
-      if (session) {
-        const { data, error } = await supabase
-          .from('notes')
-          .insert({ user_id: session.user.id, text: bubble.text, source: 'manifestation' })
-          .select('id, text, source, created_at')
-          .single();
-        if (error) { console.error('manifestation save failed:', error.message); return; }
-        setEntries((e) => [data, ...e]);
-      }
+    setPlaced((p) => [...p, bubble]);
+    if (session) {
+      const { data, error } = await supabase
+        .from('notes')
+        .insert({ user_id: session.user.id, text: bubble.text, source: 'manifestation' })
+        .select('id, text, source, created_at')
+        .single();
+      if (error) { console.error('manifestation save failed:', error.message); return; }
+      setEntries((e) => [data, ...e]);
     }
-    // not tapped = it just floated off and popped — nothing saved, matches Blank Canvas behaviour
   };
 
   return (
@@ -185,7 +183,6 @@ export default function CalmSpace() {
             ))}
           </div>
 
-          {/* ---------- Continuous Flow ---------- */}
           {tab === 'flow' && (
             <>
               <p className="mb-6 max-w-lg text-[15px] leading-relaxed" style={{ color: 'var(--text-soft)' }}>
@@ -227,12 +224,11 @@ export default function CalmSpace() {
             </>
           )}
 
-          {/* ---------- Blank Canvas ---------- */}
           {tab === 'canvas' && (
             <>
               <div className="flex items-center justify-between mb-2">
                 <p className="text-[15px]" style={{ color: 'var(--text-soft)' }}>Type a thought, press enter, watch it float.</p>
-                <div className="text-xs px-2.5 py-1 rounded-full flex-shrink-0" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)', color: 'var(--text-faint)' }}>
+                <div className="text-xs px-2.5 py-1 rounded-full shrink-0" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)', color: 'var(--text-faint)' }}>
                   {bubbles.length} bubble{bubbles.length === 1 ? '' : 's'}
                 </div>
               </div>
@@ -253,7 +249,7 @@ export default function CalmSpace() {
                   />
                 </div>
                 <div className="absolute bottom-16 left-0 right-0 text-center text-xs" style={{ color: 'var(--text-faint)' }}>
-                  bubbles rise, then drift — tap one to pop it away
+                  bubbles float here until you tap one away
                 </div>
               </div>
               <p className="text-xs mt-3" style={{ color: 'var(--text-faint)' }}>
@@ -262,14 +258,13 @@ export default function CalmSpace() {
             </>
           )}
 
-          {/* ---------- Manifestation Matrix ---------- */}
           {tab === 'manifest' && (
             <>
               <div className="flex items-center justify-between mb-2">
                 <p className="text-[15px]" style={{ color: 'var(--text-soft)' }}>
                   Write 3 present-tense affirmations. Tap each bubble to send it to your dashboard.
                 </p>
-                <div className="text-xs px-2.5 py-1 rounded-full flex-shrink-0" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)', color: 'var(--text-faint)' }}>
+                <div className="text-xs px-2.5 py-1 rounded-full shrink-0" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)', color: 'var(--text-faint)' }}>
                   {placed.length} / 3 placed
                 </div>
               </div>
@@ -305,7 +300,7 @@ export default function CalmSpace() {
                   />
                 </div>
                 <div className="absolute bottom-16 left-0 right-0 text-center text-xs" style={{ color: 'var(--text-faint)' }}>
-                  bubbles rise, then drift — tap one to place it, or let it pass
+                  bubbles float here — tap one to place it on your dashboard
                 </div>
               </div>
             </>
