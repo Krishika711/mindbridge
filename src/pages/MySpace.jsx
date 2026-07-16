@@ -72,10 +72,9 @@ function formatDateLabel(iso) {
 const GREETING = { from: 'wisp', text: "Hello, I'm Wisp. How are you feeling today?", id: null, created_at: null };
 
 const FEATURES = [
-  { key: 'hope-vault', label: 'Hope Vault', path: '/hope-vault', icon: '💛' },
-  { key: 'safe-circle', label: 'Safe Circle', path: '/safe-circle', icon: '🤝' },
-  { key: 'mood-insights', label: 'Mood Insights', path: '/mood-insights', icon: '📈' },
-  { key: 'calm-space', label: 'Calm Space', path: '/calm-space', icon: '🌙' },
+  { key: 'hope-vault', label: 'Hope Vault', path: '/hope-vault', icon: '✨' },
+  { key: 'safe-circle', label: 'Safe Circle', path: '/safe-circle', icon: '❤️‍🩹' },
+  { key: 'calm-space', label: 'Calm Space', path: '/calm-space', icon: '😌' },
 ];
 
 const TOOL_TABS = [
@@ -181,7 +180,7 @@ export default function MySpace() {
 
     const items = Array.from(bySession.entries())
       .sort((a, b) => new Date(b[1].last.created_at) - new Date(a[1].last.created_at))
-      .slice(0, 8)
+      .slice(0, 3)
       .map(([sessionId, entry]) => {
         const snippetSrc = entry.firstUser?.text || entry.last.text || '';
         return {
@@ -192,6 +191,15 @@ export default function MySpace() {
       });
     setHistoryItems(items);
   }, [session]);
+
+  const deleteSession = async (e, sessionId) => {
+    e.stopPropagation(); // don't trigger loadSession's click on the card underneath
+    if (!window.confirm('Ye chat delete karni hai? Wapas nahi aayegi.')) return;
+    if (sessionId === activeSessionId) startNewChat();
+    setHistoryItems((h) => h.filter((x) => x.sessionId !== sessionId));
+    const { error } = await supabase.from('messages').delete().eq('user_id', session.user.id).eq('session_id', sessionId);
+    if (error) console.error('delete chat failed:', error.message);
+  };
 
   const loadSession = async (sessionId) => {
     if (!session) return;
@@ -623,13 +631,31 @@ export default function MySpace() {
                   <div
                     key={h.sessionId}
                     onClick={() => loadSession(h.sessionId)}
-                    className={`rounded-2xl p-3.5 mb-2.5 cursor-pointer transition-transform hover:-translate-y-0.5 ${h.sessionId === activeSessionId ? 'ring-1' : ''}`}
+                    className={`group flex items-center justify-between gap-2 rounded-2xl p-3.5 mb-2.5 cursor-pointer transition-transform hover:-translate-y-0.5 ${h.sessionId === activeSessionId ? 'ring-1' : ''}`}
                     style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)' }}
                   >
-                    <div className="text-xs mb-1" style={{ color: 'var(--text-faint)' }}>{h.date}</div>
-                    <div className="text-sm font-medium">{h.snippet}</div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs mb-1" style={{ color: 'var(--text-faint)' }}>{h.date}</div>
+                      <div className="text-sm font-medium truncate">{h.snippet}</div>
+                    </div>
+                    <button
+                      onClick={(e) => deleteSession(e, h.sessionId)}
+                      className="text-xs opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                      style={{ color: '#C0523A' }}
+                    >
+                      Delete
+                    </button>
                   </div>
                 ))}
+                {historyItems.length > 0 && (
+                  <button
+                    onClick={() => navigate('/profile')}
+                    className="text-xs font-semibold mt-1"
+                    style={{ color: 'var(--accent-deep)' }}
+                  >
+                    View all →
+                  </button>
+                )}
               </div>
 
               <div>

@@ -99,6 +99,22 @@ export default function CalmSpace() {
       });
   }, [session]);
 
+  // Synthesized pop sound — created fresh per pop since browsers require
+  // AudioContext to originate from a real user interaction (the tap itself).
+  const playPop = () => {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(600, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(180, ctx.currentTime + 0.12);
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.15);
+  };
+
   const handleFlowKeyDown = (e) => {
     if (flowActive && (e.key === 'Backspace' || e.key === 'Delete')) e.preventDefault();
   };
@@ -125,7 +141,10 @@ export default function CalmSpace() {
     setBubbles((b) => [...b, { id: Date.now(), text }]);
     setCanvasDraft('');
   };
-  const popBubble = (id) => setBubbles((b) => b.filter((x) => x.id !== id));
+  const popBubble = (id) => {
+    playPop();
+    setBubbles((b) => b.filter((x) => x.id !== id));
+  };
 
   const spawnManifestBubble = () => {
     if (placed.length >= 3) return;
@@ -136,6 +155,7 @@ export default function CalmSpace() {
   };
 
   const resolveManifestBubble = async (id) => {
+    playPop();
     const bubble = manifestBubbles.find((b) => b.id === id);
     setManifestBubbles((b) => b.filter((x) => x.id !== id));
     if (!bubble) return;
