@@ -9,36 +9,53 @@ import { supabase } from '../lib/supabaseClient';
 const MOOD_COLOR = {
   joyful: '#E6A93A', neutral: '#B8B0A0', anxious: '#8593A3', sad: '#4A5578', numb: '#7B8399',
 };
-const MOOD_Y = { joyful: 18, neutral: 45, anxious: 55, sad: 82, numb: 65 }; // % from top, lower = happier
+const MOOD_Y = { joyful: 18, neutral: 45, anxious: 55, sad: 82, numb: 65 };
 const MOOD_LABEL = { joyful: 'Bright & Energized', neutral: 'Calm & Balanced', anxious: 'Quiet & Reflective', sad: 'Heavy & Overwhelmed', numb: 'Burnt Out & Unclear' };
+
+function dominantMood(moods) {
+  if (!moods.length) return null;
+  const counts = {};
+  moods.forEach((m) => { counts[m] = (counts[m] || 0) + 1; });
+  return Object.keys(counts).sort((a, b) => {
+    if (counts[b] !== counts[a]) return counts[b] - counts[a];
+    return MOOD_Y[a] - MOOD_Y[b]; // tie-break toward the "brighter" (lower Y) mood
+  })[0];
+}
 
 function HeartbeatSpectrum({ moodHistory }) {
   const [hover, setHover] = useState(null);
 
+  // One point per calendar day, last 7 days — never per raw check-in.
+  // This is what actually prevents same-day rapid check-ins from stacking on top of each other.
   const points = useMemo(() => {
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const recent = moodHistory
-      .filter((h) => new Date(h.date) >= sevenDaysAgo)
-      .sort((a, b) => new Date(a.date) - new Date(b.date));
+    const days = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      d.setHours(0, 0, 0, 0);
+      days.push(d);
+    }
 
-    if (recent.length === 0) return [];
-    const first = new Date(recent[0].date).getTime();
-    const last = new Date(recent[recent.length - 1].date).getTime();
-    const span = Math.max(last - first, 1);
-
-    return recent.map((h) => {
-      const t = new Date(h.date).getTime();
-      const xBase = ((t - first) / span) * 92 + 4; // 4–96%
-      const isStormy = h.mood === 'sad';
-      return {
-        x: xBase,
-        y: MOOD_Y[h.mood] ?? 50,
-        jitter: isStormy,
-        mood: h.mood,
-        date: h.date,
-      };
+    const byDay = days.map((day) => {
+      const dayEntries = moodHistory.filter((h) => {
+        const t = new Date(h.date);
+        return t.toDateString() === day.toDateString();
+      });
+      return { day, moods: dayEntries.map((e) => e.mood), count: dayEntries.length };
     });
+
+    const withData = byDay
+      .map((b, i) => ({ ...b, dayIndex: i }))
+      .filter((b) => b.moods.length > 0);
+
+    return withData.map((b) => ({
+      x: (b.dayIndex / 6) * 92 + 4, // even spacing by day slot, not by timestamp
+      y: MOOD_Y[dominantMood(b.moods)],
+      mood: dominantMood(b.moods),
+      jitter: dominantMood(b.moods) === 'sad',
+      day: b.day,
+      count: b.count,
+    }));
   }, [moodHistory]);
 
   if (points.length === 0) {
@@ -49,7 +66,6 @@ function HeartbeatSpectrum({ moodHistory }) {
     );
   }
 
-  // Build a smooth-ish path, with small jitter added around stormy points for the "erratic pulse" look
   const pathPoints = [];
   points.forEach((p) => {
     if (p.jitter) {
@@ -101,10 +117,11 @@ function HeartbeatSpectrum({ moodHistory }) {
             boxShadow: '0 8px 20px -8px rgba(0,0,0,0.3)',
           }}
         >
-          <div className="font-semibold">
-            {new Date(points[hover].date).toLocaleDateString(undefined, { weekday: 'long' })}, {new Date(points[hover].date).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
-          </div>
+          <div className="font-semibold">{points[hover].day.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}</div>
           <div style={{ color: 'var(--text-soft)' }}>{MOOD_LABEL[points[hover].mood]}</div>
+          {points[hover].count > 1 && (
+            <div style={{ color: 'var(--text-faint)' }}>{points[hover].count} check-ins, showing the most common</div>
+          )}
         </div>
       )}
     </div>
@@ -158,7 +175,6 @@ export default function Profile() {
 
           <h1 className="text-3xl mb-8" style={{ fontFamily: 'var(--font-display)', fontWeight: 600 }}>Profile</h1>
 
-          {/* Account */}
           <div className="rounded-3xl p-6 mb-6 backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
             <div className="text-[11px] font-semibold tracking-[1.4px] uppercase mb-4" style={{ color: 'var(--accent-deep)' }}>Account</div>
             <div className="flex items-center gap-4">
@@ -172,21 +188,15 @@ export default function Profile() {
             </div>
           </div>
 
-          {/* Mood Insight */}
           <div className="rounded-3xl p-6 mb-6 backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
             <div className="text-[11px] font-semibold tracking-[1.4px] uppercase mb-1" style={{ color: 'var(--accent-deep)' }}>Mood Insight</div>
             <p className="text-xs mb-4" style={{ color: 'var(--text-faint)' }}>Your last 7 days, as a pulse — hover any point.</p>
             <HeartbeatSpectrum moodHistory={moodHistory} />
-            <button
-              onClick={() => navigate('/mood-insights')}
-              className="mt-3 text-xs font-semibold"
-              style={{ color: 'var(--accent-deep)' }}
-            >
+            <button onClick={() => navigate('/mood-insights')} className="mt-3 text-xs font-semibold" style={{ color: 'var(--accent-deep)' }}>
               View full breakdown →
             </button>
           </div>
 
-          {/* Emergency Contact */}
           <div className="rounded-3xl p-6 backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
             <div className="text-[11px] font-semibold tracking-[1.4px] uppercase mb-2" style={{ color: 'var(--accent-deep)' }}>Emergency Contact</div>
             <p className="text-xs mb-4 leading-relaxed" style={{ color: 'var(--text-faint)' }}>
