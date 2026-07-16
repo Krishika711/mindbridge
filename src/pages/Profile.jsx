@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../components/Header';
 import MoodBackground from '../components/MoodBackground';
@@ -18,15 +18,25 @@ function dominantMood(moods) {
   moods.forEach((m) => { counts[m] = (counts[m] || 0) + 1; });
   return Object.keys(counts).sort((a, b) => {
     if (counts[b] !== counts[a]) return counts[b] - counts[a];
-    return MOOD_Y[a] - MOOD_Y[b]; // tie-break toward the "brighter" (lower Y) mood
+    return MOOD_Y[a] - MOOD_Y[b];
   })[0];
+}
+
+function formatDateLabel(iso) {
+  const d = new Date(iso);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  if (d.toDateString() === today.toDateString()) {
+    return `Today, ${d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
+  }
+  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 function HeartbeatSpectrum({ moodHistory }) {
   const [hover, setHover] = useState(null);
 
-  // One point per calendar day, last 7 days — never per raw check-in.
-  // This is what actually prevents same-day rapid check-ins from stacking on top of each other.
   const points = useMemo(() => {
     const days = [];
     for (let i = 6; i >= 0; i--) {
@@ -35,35 +45,23 @@ function HeartbeatSpectrum({ moodHistory }) {
       d.setHours(0, 0, 0, 0);
       days.push(d);
     }
-
     const byDay = days.map((day) => {
-      const dayEntries = moodHistory.filter((h) => {
-        const t = new Date(h.date);
-        return t.toDateString() === day.toDateString();
-      });
-      return { day, moods: dayEntries.map((e) => e.mood), count: dayEntries.length };
+      const dayEntries = moodHistory.filter((h) => new Date(h.date).toDateString() === day.toDateString());
+      return { day, moods: dayEntries.map((e) => e.mood) };
     });
-
-    const withData = byDay
-      .map((b, i) => ({ ...b, dayIndex: i }))
-      .filter((b) => b.moods.length > 0);
-
+    const withData = byDay.map((b, i) => ({ ...b, dayIndex: i })).filter((b) => b.moods.length > 0);
     return withData.map((b) => ({
-      x: (b.dayIndex / 6) * 92 + 4, // even spacing by day slot, not by timestamp
+      x: (b.dayIndex / 6) * 92 + 4,
       y: MOOD_Y[dominantMood(b.moods)],
       mood: dominantMood(b.moods),
       jitter: dominantMood(b.moods) === 'sad',
       day: b.day,
-      count: b.count,
+      count: b.moods.length,
     }));
   }, [moodHistory]);
 
   if (points.length === 0) {
-    return (
-      <div className="text-sm text-center py-12" style={{ color: 'var(--text-faint)' }}>
-        No check-ins in the last 7 days yet — your pulse line appears here as you go.
-      </div>
-    );
+    return <div className="text-sm text-center py-12" style={{ color: 'var(--text-faint)' }}>No check-ins in the last 7 days yet.</div>;
   }
 
   const pathPoints = [];
@@ -75,7 +73,6 @@ function HeartbeatSpectrum({ moodHistory }) {
     }
     pathPoints.push({ x: p.x, y: p.y });
   });
-
   const d = pathPoints.reduce((acc, p, i) => {
     if (i === 0) return `M ${p.x} ${p.y}`;
     const prev = pathPoints[i - 1];
@@ -88,14 +85,11 @@ function HeartbeatSpectrum({ moodHistory }) {
       <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full">
         <defs>
           <linearGradient id="pulseGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-            {points.map((p, i) => (
-              <stop key={i} offset={`${p.x}%`} stopColor={MOOD_COLOR[p.mood]} />
-            ))}
+            {points.map((p, i) => <stop key={i} offset={`${p.x}%`} stopColor={MOOD_COLOR[p.mood]} />)}
           </linearGradient>
         </defs>
         <path d={d} fill="none" stroke="url(#pulseGrad)" strokeWidth="1.4" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
       </svg>
-
       {points.map((p, i) => (
         <div
           key={i}
@@ -105,23 +99,13 @@ function HeartbeatSpectrum({ moodHistory }) {
           style={{ left: `${p.x}%`, top: `${p.y}%`, background: MOOD_COLOR[p.mood], border: '2px solid var(--card-bg)' }}
         />
       ))}
-
       {hover !== null && (
         <div
           className="absolute -translate-x-1/2 rounded-xl px-3 py-2 text-xs backdrop-blur-md z-10 whitespace-nowrap"
-          style={{
-            left: `${points[hover].x}%`,
-            top: `${Math.max(points[hover].y - 22, 4)}%`,
-            background: 'var(--card-bg)',
-            border: '1px solid var(--card-border)',
-            boxShadow: '0 8px 20px -8px rgba(0,0,0,0.3)',
-          }}
+          style={{ left: `${points[hover].x}%`, top: `${Math.max(points[hover].y - 22, 4)}%`, background: 'var(--card-bg)', border: '1px solid var(--card-border)', boxShadow: '0 8px 20px -8px rgba(0,0,0,0.3)' }}
         >
           <div className="font-semibold">{points[hover].day.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}</div>
           <div style={{ color: 'var(--text-soft)' }}>{MOOD_LABEL[points[hover].mood]}</div>
-          {points[hover].count > 1 && (
-            <div style={{ color: 'var(--text-faint)' }}>{points[hover].count} check-ins, showing the most common</div>
-          )}
         </div>
       )}
     </div>
@@ -131,12 +115,38 @@ function HeartbeatSpectrum({ moodHistory }) {
 export default function Profile() {
   const navigate = useNavigate();
   const { theme, mode, session, userName, moodHistory, signOut } = useMood();
+
+  // Account editing
+  const [editingAccount, setEditingAccount] = useState(false);
+  const [nameField, setNameField] = useState('');
+  const [emailField, setEmailField] = useState('');
+  const [ageField, setAgeField] = useState('');
+  const [accountSaving, setAccountSaving] = useState(false);
+  const [accountMsg, setAccountMsg] = useState('');
+
+  // Emergency contact
   const [contactName, setContactName] = useState('');
   const [contactEmail, setContactEmail] = useState('');
   const [savedTick, setSavedTick] = useState(false);
 
+  // Full history
+  const [sessions, setSessions] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+
   useEffect(() => {
     if (!session) return;
+    setEmailField(session.user.email || '');
+    supabase
+      .from('profiles')
+      .select('full_name, age')
+      .eq('id', session.user.id)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (error) { console.error('profile load failed:', error.message); return; }
+        setNameField(data?.full_name || userName || '');
+        setAgeField(data?.age ?? '');
+      });
+
     supabase
       .from('emergency_contacts')
       .select('contact_name, contact_email')
@@ -144,24 +154,90 @@ export default function Profile() {
       .maybeSingle()
       .then(({ data, error }) => {
         if (error) { console.error('emergency contact load failed:', error.message); return; }
-        if (data) {
-          setContactName(data.contact_name || '');
-          setContactEmail(data.contact_email || '');
-        }
+        if (data) { setContactName(data.contact_name || ''); setContactEmail(data.contact_email || ''); }
       });
+  }, [session, userName]);
+
+  const loadHistory = useCallback(async () => {
+    if (!session) return;
+    setHistoryLoading(true);
+    const { data, error } = await supabase
+      .from('messages')
+      .select('session_id, from_role, text, created_at')
+      .eq('user_id', session.user.id)
+      .order('created_at', { ascending: true });
+    setHistoryLoading(false);
+    if (error) { console.error('history load failed:', error.message); return; }
+
+    const bySession = new Map();
+    (data || []).forEach((m) => {
+      if (!m.session_id) return;
+      if (!bySession.has(m.session_id)) bySession.set(m.session_id, { firstUser: null, last: m, count: 0 });
+      const entry = bySession.get(m.session_id);
+      if (!entry.firstUser && m.from_role === 'user') entry.firstUser = m;
+      entry.last = m;
+      entry.count += 1;
+    });
+
+    const items = Array.from(bySession.entries())
+      .sort((a, b) => new Date(b[1].last.created_at) - new Date(a[1].last.created_at))
+      .map(([sessionId, entry]) => {
+        const snippetSrc = entry.firstUser?.text || entry.last.text || '';
+        return {
+          sessionId,
+          date: formatDateLabel(entry.last.created_at),
+          snippet: snippetSrc.length > 70 ? snippetSrc.slice(0, 70) + '…' : snippetSrc,
+          count: entry.count,
+        };
+      });
+    setSessions(items);
   }, [session]);
+
+  useEffect(() => { loadHistory(); }, [loadHistory]);
+
+  const saveAccount = async () => {
+    setAccountMsg('');
+    setAccountSaving(true);
+    try {
+      const { error: profileErr } = await supabase.from('profiles').update({
+        full_name: nameField.trim(),
+        age: ageField === '' ? null : Number(ageField),
+      }).eq('id', session.user.id);
+      if (profileErr) throw profileErr;
+
+      const { error: metaErr } = await supabase.auth.updateUser({ data: { full_name: nameField.trim() } });
+      if (metaErr) throw metaErr;
+
+      if (emailField.trim() !== session.user.email) {
+        const { error: emailErr } = await supabase.auth.updateUser({ email: emailField.trim() });
+        if (emailErr) throw emailErr;
+        setAccountMsg('Naya email confirm karne ke liye link bheji gayi hai — confirm hone tak purana email hi active rahega.');
+      } else {
+        setAccountMsg('Saved ✓');
+      }
+      setEditingAccount(false);
+    } catch (err) {
+      setAccountMsg(err.message || 'Kuch galat ho gaya.');
+    } finally {
+      setAccountSaving(false);
+      setTimeout(() => setAccountMsg(''), 6000);
+    }
+  };
 
   const saveEmergencyContact = async () => {
     if (!session || !contactName.trim() || !contactEmail.trim()) return;
     const { error } = await supabase.from('emergency_contacts').upsert({
-      user_id: session.user.id,
-      contact_name: contactName.trim(),
-      contact_email: contactEmail.trim(),
-      updated_at: new Date().toISOString(),
+      user_id: session.user.id, contact_name: contactName.trim(), contact_email: contactEmail.trim(), updated_at: new Date().toISOString(),
     });
     if (error) { console.error('emergency contact save failed:', error.message); return; }
     setSavedTick(true);
     setTimeout(() => setSavedTick(false), 1800);
+  };
+
+  const deleteSession = async (sessionId) => {
+    setSessions((s) => s.filter((x) => x.sessionId !== sessionId));
+    const { error } = await supabase.from('messages').delete().eq('user_id', session.user.id).eq('session_id', sessionId);
+    if (error) console.error('delete chat failed:', error.message);
   };
 
   return (
@@ -172,53 +248,89 @@ export default function Profile() {
       <main className="relative z-10 flex-1 flex flex-col items-center px-6 py-10">
         <div className="w-full max-w-2xl">
           <button onClick={() => navigate(-1)} className="text-sm mb-6" style={{ color: 'var(--text-soft)' }}>← Back</button>
-
           <h1 className="text-3xl mb-8" style={{ fontFamily: 'var(--font-display)', fontWeight: 600 }}>Profile</h1>
 
+          {/* Account */}
           <div className="rounded-3xl p-6 mb-6 backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
-            <div className="text-[11px] font-semibold tracking-[1.4px] uppercase mb-4" style={{ color: 'var(--accent-deep)' }}>Account</div>
-            <div className="flex items-center gap-4">
-              <div className="w-14 h-14 rounded-full flex items-center justify-center text-xl font-semibold" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)' }}>
-                {(userName || '?').charAt(0).toUpperCase()}
-              </div>
-              <div>
-                <div className="font-semibold text-lg">{userName}</div>
-                <div className="text-sm" style={{ color: 'var(--text-faint)' }}>{session?.user.email}</div>
-              </div>
+            <div className="flex items-center justify-between mb-4">
+              <div className="text-[11px] font-semibold tracking-[1.4px] uppercase" style={{ color: 'var(--accent-deep)' }}>Account</div>
+              {!editingAccount && (
+                <button onClick={() => setEditingAccount(true)} className="text-xs font-semibold" style={{ color: 'var(--accent-deep)' }}>Edit</button>
+              )}
             </div>
+
+            {!editingAccount ? (
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-full flex items-center justify-center text-xl font-semibold" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)' }}>
+                  {(nameField || '?').charAt(0).toUpperCase()}
+                </div>
+                <div>
+                  <div className="font-semibold text-lg">{nameField || userName}</div>
+                  <div className="text-sm" style={{ color: 'var(--text-faint)' }}>{session?.user.email}</div>
+                  {ageField !== '' && <div className="text-sm" style={{ color: 'var(--text-faint)' }}>{ageField} years old</div>}
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2.5">
+                <input value={nameField} onChange={(e) => setNameField(e.target.value)} placeholder="Full name"
+                  className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)', color: 'var(--text)' }} />
+                <input value={emailField} onChange={(e) => setEmailField(e.target.value)} placeholder="Email" type="email"
+                  className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)', color: 'var(--text)' }} />
+                <input value={ageField} onChange={(e) => setAgeField(e.target.value)} placeholder="Age" type="number" min={13} max={120}
+                  className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)', color: 'var(--text)' }} />
+                {accountMsg && <p className="text-xs" style={{ color: 'var(--accent-deep)' }}>{accountMsg}</p>}
+                <div className="flex gap-2 mt-1">
+                  <button onClick={() => setEditingAccount(false)} className="flex-1 py-2 rounded-full text-[13px] font-semibold" style={{ border: '1px solid var(--card-border)', color: 'var(--text)' }}>Cancel</button>
+                  <button onClick={saveAccount} disabled={accountSaving} className="flex-1 py-2 rounded-full text-[13px] font-semibold" style={{ background: 'var(--ink)', color: 'var(--ink-text)', opacity: accountSaving ? 0.6 : 1 }}>
+                    {accountSaving ? 'Saving…' : 'Save changes'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
+          {/* Mood Insight */}
           <div className="rounded-3xl p-6 mb-6 backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
             <div className="text-[11px] font-semibold tracking-[1.4px] uppercase mb-1" style={{ color: 'var(--accent-deep)' }}>Mood Insight</div>
             <p className="text-xs mb-4" style={{ color: 'var(--text-faint)' }}>Your last 7 days, as a pulse — hover any point.</p>
             <HeartbeatSpectrum moodHistory={moodHistory} />
-            <button onClick={() => navigate('/mood-insights')} className="mt-3 text-xs font-semibold" style={{ color: 'var(--accent-deep)' }}>
-              View full breakdown →
-            </button>
+            <button onClick={() => navigate('/mood-insights')} className="mt-3 text-xs font-semibold" style={{ color: 'var(--accent-deep)' }}>View full breakdown →</button>
           </div>
 
+          {/* Full History */}
+          <div className="rounded-3xl p-6 mb-6 backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
+            <div className="text-[11px] font-semibold tracking-[1.4px] uppercase mb-4" style={{ color: 'var(--accent-deep)' }}>All Chats</div>
+            {historyLoading && <div className="text-xs" style={{ color: 'var(--text-faint)' }}>Loading…</div>}
+            {!historyLoading && sessions.length === 0 && <div className="text-xs" style={{ color: 'var(--text-faint)' }}>No chats yet.</div>}
+            <div className="flex flex-col gap-2.5 max-h-[420px] overflow-y-auto pr-1">
+              {sessions.map((s) => (
+                <div key={s.sessionId} className="group flex items-center justify-between gap-3 rounded-2xl p-3.5" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs mb-0.5" style={{ color: 'var(--text-faint)' }}>{s.date} · {s.count} message{s.count === 1 ? '' : 's'}</div>
+                    <div className="text-sm font-medium truncate">{s.snippet}</div>
+                  </div>
+                  <button
+                    onClick={() => { if (window.confirm('Ye chat delete karni hai? Wapas nahi aayegi.')) deleteSession(s.sessionId); }}
+                    className="text-xs opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 px-2"
+                    style={{ color: '#C0523A' }}
+                  >
+                    Delete
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Emergency Contact */}
           <div className="rounded-3xl p-6 backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
             <div className="text-[11px] font-semibold tracking-[1.4px] uppercase mb-2" style={{ color: 'var(--accent-deep)' }}>Emergency Contact</div>
             <p className="text-xs mb-4 leading-relaxed" style={{ color: 'var(--text-faint)' }}>
-              If high-risk language is detected in your chat, this person gets a real email alert — not a symbolic nudge. Different from Safe Circle, which is for gentle everyday support.
+              If high-risk language is detected in your chat, this person gets a real email alert.
             </p>
-            <input
-              value={contactName}
-              onChange={(e) => setContactName(e.target.value)}
-              onBlur={saveEmergencyContact}
-              placeholder="Contact name (e.g. Maa, Rohan)"
-              className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none mb-2"
-              style={{ background: 'var(--surface)', border: '1px solid var(--card-border)', color: 'var(--text)' }}
-            />
-            <input
-              value={contactEmail}
-              onChange={(e) => setContactEmail(e.target.value)}
-              onBlur={saveEmergencyContact}
-              placeholder="their@email.com"
-              type="email"
-              className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none"
-              style={{ background: 'var(--surface)', border: '1px solid var(--card-border)', color: 'var(--text)' }}
-            />
+            <input value={contactName} onChange={(e) => setContactName(e.target.value)} onBlur={saveEmergencyContact} placeholder="Contact name (e.g. Maa, Rohan)"
+              className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none mb-2" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)', color: 'var(--text)' }} />
+            <input value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} onBlur={saveEmergencyContact} placeholder="their@email.com" type="email"
+              className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)', color: 'var(--text)' }} />
             {savedTick && <div className="text-xs mt-2" style={{ color: 'var(--accent-deep)' }}>Saved ✓</div>}
           </div>
         </div>
