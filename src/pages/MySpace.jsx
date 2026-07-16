@@ -72,8 +72,8 @@ function formatDateLabel(iso) {
 const GREETING = { from: 'wisp', text: "Hello, I'm Wisp. How are you feeling today?", id: null, created_at: null };
 
 const FEATURES = [
-  { key: 'hope-vault', label: 'Hope Vault', path: '/hope-vault', icon: '✨' },
-  { key: 'safe-circle', label: 'Safe Circle', path: '/safe-circle', icon: '❤️‍🩹' },
+  { key: 'hope-vault', label: 'Hope Vault', path: '/hope-vault', icon: '💛' },
+  { key: 'safe-circle', label: 'Safe Circle', path: '/safe-circle', icon: '🤝🏻' },
   { key: 'calm-space', label: 'Calm Space', path: '/calm-space', icon: '😌' },
 ];
 

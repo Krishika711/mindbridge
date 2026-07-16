@@ -99,7 +99,7 @@ export default function SafeCircle() {
           <button onClick={() => navigate(-1)} className="text-sm mb-6" style={{ color: 'var(--text-soft)' }}>← Back</button>
 
           <div className="flex items-center gap-3 mb-2">
-            <div className="w-11 h-11 rounded-xl flex items-center justify-center text-xl" style={{ background: 'var(--ink)', color: 'var(--ink-text)' }}>🤝</div>
+            <div className="w-11 h-11 rounded-xl flex items-center justify-center text-xl" style={{ background: 'var(--ink)', color: 'var(--ink-text)' }}>🤝🏻</div>
             <h1 className="text-3xl" style={{ fontFamily: 'var(--font-display)', fontWeight: 600 }}>Safe Circle</h1>
           </div>
           <p className="mb-2" style={{ color: 'var(--text-soft)' }}>Your trusted support network</p>
