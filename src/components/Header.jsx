@@ -14,7 +14,7 @@ function BrandMark() {
 
 export default function Header({ showBack = false, onSignOut, right, showMoodSwitcher = false }) {
   const navigate = useNavigate();
-  const { mode, toggleMode } = useMood();
+  const { mode, toggleMode, session, isGuest } = useMood();
 
   return (
     <header className="relative z-30 flex items-center justify-between px-9 py-5">
@@ -33,7 +33,7 @@ export default function Header({ showBack = false, onSignOut, right, showMoodSwi
         <IconCircleButton onClick={toggleMode} aria-label="Toggle dark mode">
           {mode === 'light' ? '🌙' : '☀️'}
         </IconCircleButton>
-        {onSignOut && (
+        {(session || isGuest) && (
           <IconCircleButton onClick={() => navigate('/profile')} aria-label="Profile">
             👤
           </IconCircleButton>
