@@ -1,11 +1,45 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useMood } from '../context/MoodContext';
+import { supabase } from '../lib/supabaseClient';
 
 export default function VoiceNotes() {
+  const { session } = useMood();
   const [notes, setNotes] = useState([]);
   const [recording, setRecording] = useState(false);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
   const mediaRecorder = useRef(null);
   const chunks = useRef([]);
+
+  const loadNotes = async () => {
+    if (!session) { setLoading(false); return; }
+    setLoading(true);
+    const { data, error: loadErr } = await supabase
+      .from('voice_notes')
+      .select('id, storage_path, title, created_at')
+      .eq('user_id', session.user.id)
+      .order('created_at', { ascending: false });
+    setLoading(false);
+    if (loadErr) { console.error('voice notes load failed:', loadErr.message); return; }
+
+    const withUrls = await Promise.all(
+      (data || []).map(async (n) => {
+        const { data: signed, error: signErr } = await supabase.storage.from('media').createSignedUrl(n.storage_path, 3600);
+        if (signErr) { console.error('signed url failed:', signErr.message); return null; }
+        return {
+          id: n.id,
+          storagePath: n.storage_path,
+          url: signed.signedUrl,
+          title: n.title || '',
+          dateLabel: new Date(n.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }),
+          timeLabel: new Date(n.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        };
+      })
+    );
+    setNotes(withUrls.filter(Boolean));
+  };
+
+  useEffect(() => { loadNotes(); }, [session]);
 
   const startRecording = async () => {
     setError('');
@@ -14,21 +48,40 @@ export default function VoiceNotes() {
       const rec = new MediaRecorder(stream);
       chunks.current = [];
       rec.ondataavailable = (e) => chunks.current.push(e.data);
-      rec.onstop = () => {
+      rec.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
         const blob = new Blob(chunks.current, { type: 'audio/webm' });
-        const url = URL.createObjectURL(blob);
-        const now = new Date();
-        setNotes((n) => [
-          {
-            id: Date.now(),
-            url,
-            title: '',
+
+        if (!session) {
+          // Guest: keep the old local-only behaviour, nothing to persist to
+          const url = URL.createObjectURL(blob);
+          const now = new Date();
+          setNotes((n) => [{
+            id: `local-${Date.now()}`, url, title: '',
             dateLabel: now.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }),
             timeLabel: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          },
-          ...n,
-        ]);
-        stream.getTracks().forEach((t) => t.stop());
+          }, ...n]);
+          return;
+        }
+
+        const path = `${session.user.id}/voice-${Date.now()}.webm`;
+        const { error: uploadErr } = await supabase.storage.from('media').upload(path, blob, { contentType: 'audio/webm' });
+        if (uploadErr) { console.error('voice note upload failed:', uploadErr.message); setError('Save nahi hua — dobara try karo.'); return; }
+
+        const { data: inserted, error: insertErr } = await supabase
+          .from('voice_notes')
+          .insert({ user_id: session.user.id, storage_path: path, title: '' })
+          .select('id, created_at')
+          .single();
+        if (insertErr) { console.error('voice note record save failed:', insertErr.message); return; }
+
+        const { data: signed } = await supabase.storage.from('media').createSignedUrl(path, 3600);
+        const now = new Date(inserted.created_at);
+        setNotes((n) => [{
+          id: inserted.id, storagePath: path, url: signed?.signedUrl, title: '',
+          dateLabel: now.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }),
+          timeLabel: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        }, ...n]);
       };
       mediaRecorder.current = rec;
       rec.start();
@@ -43,8 +96,21 @@ export default function VoiceNotes() {
     setRecording(false);
   };
 
-  const deleteNote = (id) => setNotes((n) => n.filter((note) => note.id !== id));
-  const updateTitle = (id, title) => setNotes((n) => n.map((note) => (note.id === id ? { ...note, title } : note)));
+  const updateTitle = async (id, title) => {
+    setNotes((n) => n.map((note) => (note.id === id ? { ...note, title } : note)));
+    if (!session || String(id).startsWith('local-')) return;
+    const { error: updErr } = await supabase.from('voice_notes').update({ title }).eq('id', id);
+    if (updErr) console.error('voice note title save failed:', updErr.message);
+  };
+
+  const deleteNote = async (note) => {
+    setNotes((n) => n.filter((x) => x.id !== note.id));
+    if (!session || String(note.id).startsWith('local-')) return;
+    const { error: storageErr } = await supabase.storage.from('media').remove([note.storagePath]);
+    if (storageErr) console.error('voice note file delete failed:', storageErr.message);
+    const { error: rowErr } = await supabase.from('voice_notes').delete().eq('id', note.id);
+    if (rowErr) console.error('voice note record delete failed:', rowErr.message);
+  };
 
   return (
     <div className="flex flex-col h-full">
@@ -68,7 +134,8 @@ export default function VoiceNotes() {
       </div>
 
       <div className="flex-1 overflow-y-auto flex flex-col gap-2.5">
-        {notes.map((n) => (
+        {loading && <p className="text-xs text-center" style={{ color: 'var(--text-faint)' }}>Loading…</p>}
+        {!loading && notes.map((n) => (
           <div key={n.id} className="flex flex-col gap-1.5 rounded-2xl p-3" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
             <div className="flex items-center justify-between gap-2">
               <input
@@ -78,17 +145,17 @@ export default function VoiceNotes() {
                 className="flex-1 bg-transparent outline-none border-none text-[13px] font-semibold"
                 style={{ color: 'var(--text)' }}
               />
-              <button onClick={() => deleteNote(n.id)} className="text-xs flex-shrink-0" style={{ color: 'var(--text-faint)' }} aria-label="Delete">✕</button>
+              <button onClick={() => deleteNote(n)} className="text-xs shrink-0" style={{ color: 'var(--text-faint)' }} aria-label="Delete">✕</button>
             </div>
             <div className="flex items-center gap-3">
               <audio controls src={n.url} className="flex-1 h-9" style={{ maxWidth: '100%' }} />
-              <span className="text-[11px] flex-shrink-0 whitespace-nowrap" style={{ color: 'var(--text-faint)' }}>
+              <span className="text-[11px] shrink-0 whitespace-nowrap" style={{ color: 'var(--text-faint)' }}>
                 {n.dateLabel} · {n.timeLabel}
               </span>
             </div>
           </div>
         ))}
-        {!notes.length && <p className="text-xs text-center mt-2" style={{ color: 'var(--text-faint)' }}>No voice notes yet.</p>}
+        {!loading && !notes.length && <p className="text-xs text-center mt-2" style={{ color: 'var(--text-faint)' }}>No voice notes yet.</p>}
       </div>
     </div>
   );
