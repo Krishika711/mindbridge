@@ -2,6 +2,22 @@ import { useEffect, useRef, useState } from 'react';
 import { useMood } from '../context/MoodContext';
 import { supabase } from '../lib/supabaseClient';
 
+const MIME_PREFERENCES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
+
+function pickSupportedMimeType() {
+  if (!window.MediaRecorder) return '';
+  for (const type of MIME_PREFERENCES) {
+    if (MediaRecorder.isTypeSupported(type)) return type;
+  }
+  return ''; // let the browser pick its own default if none of these are supported
+}
+
+function extFromMime(mime) {
+  if (mime.includes('mp4')) return 'm4a';
+  if (mime.includes('ogg')) return 'ogg';
+  return 'webm';
+}
+
 export default function VoiceNotes() {
   const { session } = useMood();
   const [notes, setNotes] = useState([]);
@@ -10,6 +26,7 @@ export default function VoiceNotes() {
   const [loading, setLoading] = useState(true);
   const mediaRecorder = useRef(null);
   const chunks = useRef([]);
+  const actualMimeType = useRef('audio/webm'); // updated to whatever the browser really uses, per recording
 
   const loadNotes = async () => {
     if (!session) { setLoading(false); return; }
@@ -45,15 +62,17 @@ export default function VoiceNotes() {
     setError('');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const rec = new MediaRecorder(stream);
+      const preferredType = pickSupportedMimeType();
+      const rec = preferredType ? new MediaRecorder(stream, { mimeType: preferredType }) : new MediaRecorder(stream);
+      actualMimeType.current = rec.mimeType || preferredType || 'audio/webm'; // what the browser is ACTUALLY producing
       chunks.current = [];
       rec.ondataavailable = (e) => chunks.current.push(e.data);
       rec.onstop = async () => {
         stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(chunks.current, { type: 'audio/webm' });
+        const mime = actualMimeType.current;
+        const blob = new Blob(chunks.current, { type: mime });
 
         if (!session) {
-          // Guest: keep the old local-only behaviour, nothing to persist to
           const url = URL.createObjectURL(blob);
           const now = new Date();
           setNotes((n) => [{
@@ -64,8 +83,8 @@ export default function VoiceNotes() {
           return;
         }
 
-        const path = `${session.user.id}/voice-${Date.now()}.webm`;
-        const { error: uploadErr } = await supabase.storage.from('media').upload(path, blob, { contentType: 'audio/webm' });
+        const path = `${session.user.id}/voice-${Date.now()}.${extFromMime(mime)}`;
+        const { error: uploadErr } = await supabase.storage.from('media').upload(path, blob, { contentType: mime });
         if (uploadErr) { console.error('voice note upload failed:', uploadErr.message); setError('Save nahi hua — dobara try karo.'); return; }
 
         const { data: inserted, error: insertErr } = await supabase
@@ -118,18 +137,12 @@ export default function VoiceNotes() {
         <button
           onClick={recording ? stopRecording : startRecording}
           className="w-16 h-16 rounded-full flex items-center justify-center text-2xl"
-          style={{
-            background: recording ? '#C0523A' : 'var(--ink)',
-            color: recording ? '#fff' : 'var(--ink-text)',
-            animation: recording ? 'lanternFlicker 1.2s ease-in-out infinite' : 'none',
-          }}
+          style={{ background: recording ? '#C0523A' : 'var(--ink)', color: recording ? '#fff' : 'var(--ink-text)', animation: recording ? 'lanternFlicker 1.2s ease-in-out infinite' : 'none' }}
           aria-label={recording ? 'Stop recording' : 'Start recording'}
         >
           {recording ? '■' : '🎙️'}
         </button>
-        <p className="text-sm" style={{ color: 'var(--text-soft)' }}>
-          {recording ? 'Recording… tap to stop' : 'Tap to record a voice note'}
-        </p>
+        <p className="text-sm" style={{ color: 'var(--text-soft)' }}>{recording ? 'Recording… tap to stop' : 'Tap to record a voice note'}</p>
         {error && <p className="text-xs" style={{ color: '#C0523A' }}>{error}</p>}
       </div>
 
@@ -138,20 +151,13 @@ export default function VoiceNotes() {
         {!loading && notes.map((n) => (
           <div key={n.id} className="flex flex-col gap-1.5 rounded-2xl p-3" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
             <div className="flex items-center justify-between gap-2">
-              <input
-                value={n.title}
-                onChange={(e) => updateTitle(n.id, e.target.value)}
-                placeholder="Untitled voice note"
-                className="flex-1 bg-transparent outline-none border-none text-[13px] font-semibold"
-                style={{ color: 'var(--text)' }}
-              />
+              <input value={n.title} onChange={(e) => updateTitle(n.id, e.target.value)} placeholder="Untitled voice note"
+                className="flex-1 bg-transparent outline-none border-none text-[13px] font-semibold" style={{ color: 'var(--text)' }} />
               <button onClick={() => deleteNote(n)} className="text-xs shrink-0" style={{ color: 'var(--text-faint)' }} aria-label="Delete">✕</button>
             </div>
             <div className="flex items-center gap-3">
               <audio controls src={n.url} className="flex-1 h-9" style={{ maxWidth: '100%' }} />
-              <span className="text-[11px] shrink-0 whitespace-nowrap" style={{ color: 'var(--text-faint)' }}>
-                {n.dateLabel} · {n.timeLabel}
-              </span>
+              <span className="text-[11px] shrink-0 whitespace-nowrap" style={{ color: 'var(--text-faint)' }}>{n.dateLabel} · {n.timeLabel}</span>
             </div>
           </div>
         ))}
