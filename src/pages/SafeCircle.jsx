@@ -50,7 +50,7 @@ export default function SafeCircle() {
   const addPerson = async () => {
     setError('');
     if (!name.trim() || !email.trim()) {
-      setError('Name aur email dono chahiye.');
+      setError('Both Name and email are required.');
       return;
     }
     if (circle.length >= 5) {

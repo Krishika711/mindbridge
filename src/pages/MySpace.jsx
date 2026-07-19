@@ -400,7 +400,7 @@ export default function MySpace() {
           {crisisVisible && (
             <div className="flex items-start justify-between gap-3 rounded-2xl px-4 py-3 mb-3.5 text-[12.5px] leading-relaxed" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}>
               <span>
-                🌙 Yeh pal bohot bhaari lag raha hai — aur ye bilkul valid hai. Tum akele nahi ho is mein.
+                🌙 It is understanble and you're not alone.
                 {alertSent && contactName && <span style={{ color: 'var(--accent-deep)' }}> · {contactName} ko quietly inform kar diya gaya hai.</span>}
               </span>
               <button onClick={() => setCrisisVisible(false)} style={{ color: 'var(--text-faint)' }}>✕</button>

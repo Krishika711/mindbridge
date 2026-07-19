@@ -302,7 +302,7 @@ export default function Profile() {
             <div className="text-[11px] font-semibold tracking-[1.4px] uppercase mb-4" style={{ color: 'var(--accent-deep)' }}>All Chats</div>
             {historyLoading && <div className="text-xs" style={{ color: 'var(--text-faint)' }}>Loading…</div>}
             {!historyLoading && sessions.length === 0 && <div className="text-xs" style={{ color: 'var(--text-faint)' }}>No chats yet.</div>}
-            <div className="flex flex-col gap-2.5 max-h-[420px] overflow-y-auto pr-1">
+            <div className="flex flex-col gap-2.5 max-h-105 overflow-y-auto pr-1">
               {sessions.map((s) => (
                 <div key={s.sessionId} className="group flex items-center justify-between gap-3 rounded-2xl p-3.5" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
                   <div className="min-w-0 flex-1">
@@ -310,8 +310,8 @@ export default function Profile() {
                     <div className="text-sm font-medium truncate">{s.snippet}</div>
                   </div>
                   <button
-                    onClick={() => { if (window.confirm('Ye chat delete karni hai? Wapas nahi aayegi.')) deleteSession(s.sessionId); }}
-                    className="text-xs opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 px-2"
+                    onClick={() => { if (window.confirm('Once deleted, this chat cannot be recovered.')) deleteSession(s.sessionId); }}
+                    className="text-xs opacity-0 group-hover:opacity-100 transition-opacity shrink-0 px-2"
                     style={{ color: '#C0523A' }}
                   >
                     Delete
