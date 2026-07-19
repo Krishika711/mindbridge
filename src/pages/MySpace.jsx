@@ -108,7 +108,7 @@ function PhotoRow({ small = false, photos, onAdd, onRemove }) {
         </div>
       ))}
       <input id={inputId} type="file" accept="image/*" multiple onChange={handleFiles} className="hidden" />
-      <label htmlFor={inputId} className={`${size} rounded-xl flex items-center justify-center cursor-pointer text-xl flex-shrink-0`}
+      <label htmlFor={inputId} className={`${size} rounded-xl flex items-center justify-center cursor-pointer text-xl shrink-0`}
         style={{ border: '1.5px dashed var(--card-border)', color: 'var(--accent-deep)' }}>+</label>
     </div>
   );
@@ -154,7 +154,7 @@ function JournalMediaThumb({ entry, onOpen, icon }) {
 
 function JournalLightbox({ entry, onClose }) {
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-5" style={{ background: 'rgba(0,0,0,0.55)' }} onClick={onClose}>
+    <div className="fixed inset-0 z-'60' flex items-center justify-center p-5" style={{ background: 'rgba(0,0,0,0.55)' }} onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
         className="bg-white p-3 pb-8 relative"
@@ -177,7 +177,6 @@ const HISTORY_CATEGORIES = [
 
 function HistoryOverlay({ entries, loading, onClose }) {
   const [category, setCategory] = useState('text');
-  const [playingId, setPlayingId] = useState(null);
   const [lightboxEntry, setLightboxEntry] = useState(null);
 
   const grouped = HISTORY_CATEGORIES.map((c) => ({ ...c, items: entries.filter((e) => e.type === c.key) }));
@@ -230,20 +229,14 @@ function HistoryOverlay({ entries, loading, onClose }) {
             {category === 'voice' && active.items.length > 0 && (
               <div className="flex flex-col gap-3">
                 {active.items.map((e) => (
-                  <div key={e.id} className="rounded-2xl p-4 flex items-center justify-between gap-3" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
-                    <div className="flex items-center gap-3 min-w-0">
-                      <button
-                        onClick={() => setPlayingId((cur) => (cur === e.id ? null : e.id))}
-                        className="w-10 h-10 rounded-full flex items-center justify-center text-sm flex-shrink-0"
-                        style={{ background: 'var(--ink)', color: 'var(--ink-text)' }}
-                      >
-                        {playingId === e.id ? '⏸' : '▶'}
-                      </button>
-                      <div className="min-w-0">
-                        <div className="text-sm font-semibold truncate">{e.text_content || 'Voice note'}</div>
-                        <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{e.date}</div>
-                      </div>
-                    </div>
+                  <div key={e.id} className="rounded-2xl p-4 flex flex-col gap-2" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
+                    <div className="text-sm font-semibold">{e.text_content || 'Voice note'}</div>
+                    {e.mediaUrl ? (
+                      <audio controls src={e.mediaUrl} className="w-full h-9" />
+                    ) : (
+                      <div className="text-xs" style={{ color: 'var(--text-faint)' }}>Audio unavailable.</div>
+                    )}
+                    <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{e.date}</div>
                   </div>
                 ))}
               </div>
@@ -578,20 +571,13 @@ export default function MySpace() {
       <MoodBackground showCelestial={false} />
       <Header onSignOut={() => { signOut(); navigate('/'); }} showMoodSwitcher
         right={
-          responding ? (
-            <button onClick={() => setResponding((r) => !r)} className="flex items-center gap-2 px-3.5 py-2 rounded-full text-[12.5px] font-semibold cursor-pointer"
-              style={{ background: 'var(--ink)', color: 'var(--ink-text)' }}>
-              <span className="w-6 h-3.5 rounded-full relative shrink-0" style={{ background: 'rgba(255,255,255,0.25)' }}>
-                <span className="absolute top-0.5 w-2.5 h-2.5 rounded-full transition-transform" style={{ background: 'var(--ink-text)', left: 2, transform: 'translateX(10px)' }} />
-              </span>
-              Responding
-            </button>
-          ) : (
-            <button onClick={() => setShowHistory(true)} className="flex items-center gap-1.5 px-3.5 py-2 rounded-full text-[12.5px] font-semibold cursor-pointer"
-              style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', color: 'var(--text)' }}>
-              🕰️ History
-            </button>
-          )
+          <button onClick={() => setResponding((r) => !r)} className="flex items-center gap-2 px-3.5 py-2 rounded-full text-[12.5px] font-semibold cursor-pointer"
+            style={responding ? { background: 'var(--ink)', color: 'var(--ink-text)' } : { background: 'var(--card-bg)', border: '1px solid var(--card-border)', color: 'var(--text)' }}>
+            <span className="w-6 h-3.5 rounded-full relative shrink-0" style={{ background: responding ? 'rgba(255,255,255,0.25)' : 'var(--card-border)' }}>
+              <span className="absolute top-0.5 w-2.5 h-2.5 rounded-full transition-transform" style={{ background: responding ? 'var(--ink-text)' : 'var(--accent-deep)', left: 2, transform: responding ? 'translateX(10px)' : 'translateX(0)' }} />
+            </span>
+            {responding ? 'Responding' : 'Quiet'}
+          </button>
         } />
 
       <div className="relative z-10 px-9 -mt-2 mb-1 text-sm" style={{ color: 'var(--text-soft)' }}>
@@ -680,10 +666,10 @@ export default function MySpace() {
                           placeholder="Jot something down while you chat..." className="w-full resize-none outline-none border-none bg-transparent text-sm leading-relaxed min-h-25" style={{ color: 'var(--text)' }} />
                       )}
                       {openTool === 'draw' && (
-                        isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to save your drawings" /> : <DrawCanvas onSendToChat={sendDrawingToChat} />
+                        isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to save your drawings" /> : <DrawCanvas onSendToChat={sendDrawingToChat} onSaved={(path) => saveJournalEntry('drawing', null, path)} />
                       )}
                       {openTool === 'voice' && (
-                        isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to record voice notes" /> : <VoiceNotes />
+                        isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to record voice notes" /> : <VoiceNotes onSaved={(path) => saveJournalEntry('voice', null, path)} />
                       )}
                     </div>
                   </motion.div>
@@ -750,6 +736,12 @@ export default function MySpace() {
           ) : (
             <motion.section key="journal" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               className="rounded-[22px] p-8 flex flex-col backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', boxShadow: '0 20px 50px -30px rgba(80,50,10,0.3)' }}>
+              <div className="flex justify-end mb-2">
+                <button onClick={() => setShowHistory(true)} className="flex items-center gap-1.5 px-3.5 py-2 rounded-full text-[12.5px] font-semibold cursor-pointer"
+                  style={{ border: '1px solid var(--card-border)', background: 'var(--surface)', color: 'var(--text)' }}>
+                  🕰️ History
+                </button>
+              </div>
               <div className="flex items-end justify-between mb-5 flex-wrap gap-3">
                 <div>
                   <div className="text-[11.5px] font-bold tracking-[1.4px] uppercase mb-1.5" style={{ color: 'var(--accent-deep)' }}>Journal</div>
@@ -771,8 +763,8 @@ export default function MySpace() {
                   <textarea value={journal} onChange={(e) => { if (guardGuestWrite(e.target.value)) setJournal(e.target.value); }}
                     placeholder="Start writing… this space is yours. No pressure, no judgment." className="flex-1 resize-none outline-none border-none bg-transparent italic text-xl leading-relaxed min-h-50" style={{ fontFamily: 'var(--font-display)', color: 'var(--text)' }} />
                 )}
-                {journalTab === 'draw' && (isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to save your drawings" /> : <DrawCanvas />)}
-                {journalTab === 'voice' && (isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to record voice notes" /> : <VoiceNotes />)}
+                {journalTab === 'draw' && (isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to save your drawings" /> : <DrawCanvas onSaved={(path) => saveJournalEntry('drawing', null, path)} />)}
+                {journalTab === 'voice' && (isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to record voice notes" /> : <VoiceNotes onSaved={(path) => saveJournalEntry('voice', null, path)} />)}
               </div>
               {journalTab === 'write' && (
                 <div className="flex items-center justify-between mt-5 pt-4 flex-wrap gap-3" style={{ borderTop: '1px solid var(--card-border)' }}>

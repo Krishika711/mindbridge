@@ -18,7 +18,7 @@ function extFromMime(mime) {
   return 'webm';
 }
 
-export default function VoiceNotes() {
+export default function VoiceNotes({ onSaved } = {}) {
   const { session } = useMood();
   const [notes, setNotes] = useState([]);
   const [recording, setRecording] = useState(false);
@@ -93,6 +93,10 @@ export default function VoiceNotes() {
           .select('id, created_at')
           .single();
         if (insertErr) { console.error('voice note record save failed:', insertErr.message); return; }
+
+        // Also index this note into the unified journal_entries history, so it shows up
+        // under History → Voice Notes alongside written entries, drawings, and photos.
+        onSaved?.(path);
 
         const { data: signed } = await supabase.storage.from('media').createSignedUrl(path, 3600);
         const now = new Date(inserted.created_at);
