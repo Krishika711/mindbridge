@@ -190,10 +190,11 @@ function PhotoOverlay({ onClose, onSave }) {
 
 export default function HopeVault() {
   const navigate = useNavigate();
-  const { theme, mode, hopeTokens, addHopeToken } = useMood();
+  const { theme, mode, hopeTokens, addHopeToken, deleteHopeToken } = useMood();
   const [unlocked, setUnlocked] = useState(false);
-  const [openOverlay, setOpenOverlay] = useState(null); // null | 'voice' | 'text' | 'photo' | 'letter'
+  const [openOverlay, setOpenOverlay] = useState(null);
   const [session, setSessionParts] = useState({ voice: null, text: null, photo: null, letter: null });
+  const [filing, setFiling] = useState(false);
 
   const sessionTitle = (() => {
     const parts = [];
@@ -211,16 +212,12 @@ export default function HopeVault() {
     setOpenOverlay(null);
   };
 
-  const fileAway = () => {
+  const fileAway = async () => {
     if (!hasAnyPart) return;
-    addHopeToken({
-      text: session.text || (session.letter ? null : null),
-      voice: session.voice,
-      photo: session.photo,
-      letter: session.letter,
-      date: 'Just now',
-    });
+    setFiling(true);
+    await addHopeToken({ text: session.text, voice: session.voice, photo: session.photo, letter: session.letter });
     setSessionParts({ voice: null, text: null, photo: null, letter: null });
+    setFiling(false);
   };
 
   return (
@@ -262,7 +259,6 @@ export default function HopeVault() {
               </motion.div>
             ) : (
               <motion.div key="unlocked" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                {/* Today's tape — session builder */}
                 <div className="rounded-2xl p-5 mb-4 backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
                   <div className="flex items-center justify-between mb-2">
                     <div>
@@ -290,15 +286,14 @@ export default function HopeVault() {
                   </p>
                   <button
                     onClick={fileAway}
-                    disabled={!hasAnyPart}
+                    disabled={!hasAnyPart || filing}
                     className="w-full py-3 rounded-full text-sm font-semibold"
-                    style={{ background: 'var(--ink)', color: 'var(--ink-text)', opacity: hasAnyPart ? 1 : 0.4 }}
+                    style={{ background: 'var(--ink)', color: 'var(--ink-text)', opacity: (hasAnyPart && !filing) ? 1 : 0.4 }}
                   >
-                    File this tape away
+                    {filing ? 'Filing…' : 'File this tape away'}
                   </button>
                 </div>
 
-                {/* Input grid */}
                 <div className="grid grid-cols-2 gap-3 mb-8">
                   {INPUT_TYPES.map((t) => (
                     <button
@@ -315,15 +310,22 @@ export default function HopeVault() {
                   ))}
                 </div>
 
-                {/* Filed tapes */}
                 <div className="grid sm:grid-cols-2 gap-3">
                   {hopeTokens.map((t) => (
                     <motion.div
                       key={t.id}
                       initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-                      className="rounded-2xl p-5 backdrop-blur-md flex flex-col gap-3"
+                      className="group relative rounded-2xl p-5 backdrop-blur-md flex flex-col gap-3"
                       style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}
                     >
+                      <button
+                        onClick={() => deleteHopeToken(t.id)}
+                        className="absolute top-3 right-3 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                        style={{ color: 'var(--text-faint)' }}
+                        aria-label="Delete tape"
+                      >
+                        ✕
+                      </button>
                       {t.photo && <img src={t.photo} alt="" className="w-full h-32 object-cover rounded-xl" />}
                       {t.text && (
                         <p className="italic text-[15px] leading-relaxed" style={{ fontFamily: 'var(--font-display)', color: 'var(--text)' }}>"{t.text}"</p>
