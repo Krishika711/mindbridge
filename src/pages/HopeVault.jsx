@@ -413,7 +413,7 @@ export default function HopeVault() {
                       style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}
                     >
                       <button
-                        onClick={() => { if (window.confirm('Ye tape delete karni hai? Wapas nahi aayegi.')) deleteTape(t); }}
+                        onClick={() => { if (window.confirm('Once deleted, this snippet cannot be recovered.')) deleteTape(t); }}
                         className="absolute top-3 right-3 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
                         style={{ color: '#C0523A' }}
                       >
