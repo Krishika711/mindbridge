@@ -124,6 +124,147 @@ function GuestLockedPane({ label, onUnlock }) {
   );
 }
 
+// ---------- Quiet Mode History (Written / Drawings / Voice / Photos) ----------
+
+function JournalWrittenCard({ entry }) {
+  return (
+    <div className="rounded-2xl p-5" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
+      <p className="italic text-[15px] leading-relaxed mb-2" style={{ fontFamily: 'var(--font-display)', color: 'var(--text)' }}>
+        "{entry.text_content}"
+      </p>
+      <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{entry.date}</div>
+    </div>
+  );
+}
+
+function JournalMediaThumb({ entry, onOpen, icon }) {
+  return (
+    <button
+      onClick={() => onOpen(entry)}
+      className="bg-white p-2 pb-6 text-left"
+      style={{ transform: 'rotate(-1deg)', boxShadow: '0 10px 22px -10px rgba(0,0,0,0.3)' }}
+    >
+      <div className="w-full aspect-square bg-cover bg-center flex items-center justify-center" style={{ backgroundImage: entry.mediaUrl ? `url(${entry.mediaUrl})` : 'none', background: entry.mediaUrl ? undefined : '#eee' }}>
+        {!entry.mediaUrl && <span className="text-2xl">{icon}</span>}
+      </div>
+      <div className="text-center mt-2 text-sm" style={{ fontFamily: 'var(--font-hand, cursive)', color: '#4a3c22' }}>{entry.date}</div>
+    </button>
+  );
+}
+
+function JournalLightbox({ entry, onClose }) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-5" style={{ background: 'rgba(0,0,0,0.55)' }} onClick={onClose}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white p-3 pb-8 relative"
+        style={{ width: 'min(360px, 90vw)', boxShadow: '0 30px 70px -20px rgba(0,0,0,0.5)' }}
+      >
+        <button onClick={onClose} className="absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center text-sm" style={{ background: 'rgba(0,0,0,0.06)', color: '#4a3c22' }}>✕</button>
+        {entry.mediaUrl && <img src={entry.mediaUrl} alt="" className="w-full aspect-square object-cover" />}
+        <div className="text-center mt-3 text-lg" style={{ fontFamily: 'var(--font-hand, cursive)', color: '#4a3c22' }}>{entry.date}</div>
+      </div>
+    </div>
+  );
+}
+
+const HISTORY_CATEGORIES = [
+  { key: 'text', label: 'Written', icon: '✍️', hint: 'Journal entries you can read.' },
+  { key: 'drawing', label: 'Drawings', icon: '🎨', hint: 'Sketches you can look back at.' },
+  { key: 'voice', label: 'Voice Notes', icon: '🎙️', hint: 'Recordings you can listen to.' },
+  { key: 'photo', label: 'Photos', icon: '📷', hint: 'Snapshots you can watch back.' },
+];
+
+function HistoryOverlay({ entries, loading, onClose }) {
+  const [category, setCategory] = useState('text');
+  const [playingId, setPlayingId] = useState(null);
+  const [lightboxEntry, setLightboxEntry] = useState(null);
+
+  const grouped = HISTORY_CATEGORIES.map((c) => ({ ...c, items: entries.filter((e) => e.type === c.key) }));
+  const active = grouped.find((c) => c.key === category) || grouped[0];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-5" style={{ background: 'rgba(0,0,0,0.5)' }} onClick={onClose}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-xl max-h-[85vh] overflow-y-auto rounded-3xl p-6"
+        style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', backdropFilter: 'blur(16px)' }}
+      >
+        <div className="flex items-center justify-between mb-1">
+          <div className="text-[11px] font-semibold tracking-[1.4px] uppercase" style={{ color: 'var(--accent-deep)' }}>History</div>
+          <button onClick={onClose} className="text-sm" style={{ color: 'var(--text-faint)' }}>✕</button>
+        </div>
+        <p className="text-xs mb-4" style={{ color: 'var(--text-faint)' }}>
+          Everything you've saved in Quiet Mode, sorted so you can read, watch, and listen back.
+        </p>
+
+        <div className="flex gap-2 mb-5 flex-wrap">
+          {grouped.map((c) => (
+            <button
+              key={c.key}
+              onClick={() => setCategory(c.key)}
+              className="px-4 py-2 rounded-full text-sm font-medium flex items-center gap-1.5"
+              style={category === c.key ? { background: 'var(--ink)', color: 'var(--ink-text)' } : { border: '1px solid var(--card-border)', color: 'var(--text)' }}
+            >
+              <span>{c.icon}</span> {c.label} ({c.items.length})
+            </button>
+          ))}
+        </div>
+
+        {loading && <p className="text-sm" style={{ color: 'var(--text-faint)' }}>Loading…</p>}
+
+        {!loading && (
+          <>
+            <p className="text-xs mb-3" style={{ color: 'var(--text-faint)' }}>{active.hint}</p>
+
+            {active.items.length === 0 && (
+              <p className="text-sm" style={{ color: 'var(--text-faint)' }}>Nothing saved here yet.</p>
+            )}
+
+            {category === 'text' && active.items.length > 0 && (
+              <div className="flex flex-col gap-3">
+                {active.items.map((e) => <JournalWrittenCard key={e.id} entry={e} />)}
+              </div>
+            )}
+
+            {category === 'voice' && active.items.length > 0 && (
+              <div className="flex flex-col gap-3">
+                {active.items.map((e) => (
+                  <div key={e.id} className="rounded-2xl p-4 flex items-center justify-between gap-3" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <button
+                        onClick={() => setPlayingId((cur) => (cur === e.id ? null : e.id))}
+                        className="w-10 h-10 rounded-full flex items-center justify-center text-sm flex-shrink-0"
+                        style={{ background: 'var(--ink)', color: 'var(--ink-text)' }}
+                      >
+                        {playingId === e.id ? '⏸' : '▶'}
+                      </button>
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold truncate">{e.text_content || 'Voice note'}</div>
+                        <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{e.date}</div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {(category === 'photo' || category === 'drawing') && active.items.length > 0 && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                {active.items.map((e) => (
+                  <JournalMediaThumb key={e.id} entry={e} onOpen={setLightboxEntry} icon={category === 'drawing' ? '🎨' : '📷'} />
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {lightboxEntry && <JournalLightbox entry={lightboxEntry} onClose={() => setLightboxEntry(null)} />}
+      </div>
+    </div>
+  );
+}
+
 export default function MySpace() {
   const navigate = useNavigate();
   const { theme, mode, mood, userName, isGuest, session, signOut, stormyStreak } = useMood();
@@ -145,6 +286,9 @@ export default function MySpace() {
   const [contactEmail, setContactEmail] = useState('');
   const [editingIndex, setEditingIndex] = useState(null);
   const [editingText, setEditingText] = useState('');
+  const [showHistory, setShowHistory] = useState(false);
+  const [journalEntries, setJournalEntries] = useState([]);
+  const [entriesLoading, setEntriesLoading] = useState(true);
   const threadEndRef = useRef(null);
   const controllerRef = useRef(null);
 
@@ -226,7 +370,59 @@ export default function MySpace() {
       });
   }, [session, loadSessions]);
 
-  const addPhoto = (src) => { if (isGuest) { setShowGuestGate(true); return; } setPhotos((p) => [...p, src]); };
+  const loadJournalEntries = useCallback(async () => {
+    if (!session) { setEntriesLoading(false); return; }
+    setEntriesLoading(true);
+    const { data, error } = await supabase
+      .from('journal_entries')
+      .select('id, type, text_content, media_path, created_at')
+      .eq('user_id', session.user.id)
+      .order('created_at', { ascending: false });
+    setEntriesLoading(false);
+    if (error) { console.error('journal entries load failed:', error.message); return; }
+
+    const resolved = await Promise.all(
+      (data || []).map(async (e) => {
+        let mediaUrl = null;
+        if (e.media_path) {
+          const { data: signed, error: signErr } = await supabase.storage.from('media').createSignedUrl(e.media_path, 3600);
+          if (signErr) console.error('journal media signed url failed:', signErr.message);
+          else mediaUrl = signed.signedUrl;
+        }
+        return { id: e.id, type: e.type, text_content: e.text_content, mediaUrl, date: formatDateLabel(e.created_at) };
+      })
+    );
+    setJournalEntries(resolved);
+  }, [session]);
+
+  useEffect(() => { loadJournalEntries(); }, [loadJournalEntries]);
+
+  const saveJournalEntry = async (type, textContent = null, mediaPath = null) => {
+    if (!session) return;
+    const { error } = await supabase
+      .from('journal_entries')
+      .insert({ user_id: session.user.id, type, text_content: textContent, media_path: mediaPath });
+    if (error) { console.error('journal entry save failed:', error.message); return; }
+    loadJournalEntries();
+  };
+
+  const saveWrittenEntry = () => {
+    const text = journal.trim();
+    if (!text) return;
+    saveJournalEntry('text', text);
+    setJournal('');
+  };
+
+  const addPhoto = async (src) => {
+    if (isGuest) { setShowGuestGate(true); return; }
+    setPhotos((p) => [...p, src]);
+    if (!session) return;
+    const blob = await (await fetch(src)).blob();
+    const path = `${session.user.id}/journal-photo-${Date.now()}.png`;
+    const { error: uploadErr } = await supabase.storage.from('media').upload(path, blob, { contentType: blob.type || 'image/png' });
+    if (uploadErr) { console.error('journal photo upload failed:', uploadErr.message); return; }
+    saveJournalEntry('photo', null, path);
+  };
   const removePhoto = (i) => setPhotos((p) => p.filter((_, idx) => idx !== i));
 
   const guardGuestWrite = (nextValue) => {
@@ -382,13 +578,20 @@ export default function MySpace() {
       <MoodBackground showCelestial={false} />
       <Header onSignOut={() => { signOut(); navigate('/'); }} showMoodSwitcher
         right={
-          <button onClick={() => setResponding((r) => !r)} className="flex items-center gap-2 px-3.5 py-2 rounded-full text-[12.5px] font-semibold cursor-pointer"
-            style={responding ? { background: 'var(--ink)', color: 'var(--ink-text)' } : { background: 'var(--card-bg)', border: '1px solid var(--card-border)', color: 'var(--text)' }}>
-            <span className="w-6 h-3.5 rounded-full relative shrink-0" style={{ background: responding ? 'rgba(255,255,255,0.25)' : 'var(--card-border)' }}>
-              <span className="absolute top-0.5 w-2.5 h-2.5 rounded-full transition-transform" style={{ background: responding ? 'var(--ink-text)' : 'var(--accent-deep)', left: 2, transform: responding ? 'translateX(10px)' : 'translateX(0)' }} />
-            </span>
-            {responding ? 'Responding' : 'Quiet'}
-          </button>
+          responding ? (
+            <button onClick={() => setResponding((r) => !r)} className="flex items-center gap-2 px-3.5 py-2 rounded-full text-[12.5px] font-semibold cursor-pointer"
+              style={{ background: 'var(--ink)', color: 'var(--ink-text)' }}>
+              <span className="w-6 h-3.5 rounded-full relative shrink-0" style={{ background: 'rgba(255,255,255,0.25)' }}>
+                <span className="absolute top-0.5 w-2.5 h-2.5 rounded-full transition-transform" style={{ background: 'var(--ink-text)', left: 2, transform: 'translateX(10px)' }} />
+              </span>
+              Responding
+            </button>
+          ) : (
+            <button onClick={() => setShowHistory(true)} className="flex items-center gap-1.5 px-3.5 py-2 rounded-full text-[12.5px] font-semibold cursor-pointer"
+              style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', color: 'var(--text)' }}>
+              🕰️ History
+            </button>
+          )
         } />
 
       <div className="relative z-10 px-9 -mt-2 mb-1 text-sm" style={{ color: 'var(--text-soft)' }}>
@@ -572,9 +775,15 @@ export default function MySpace() {
                 {journalTab === 'voice' && (isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to record voice notes" /> : <VoiceNotes />)}
               </div>
               {journalTab === 'write' && (
-                <div className="flex items-center justify-between mt-5 pt-4" style={{ borderTop: '1px solid var(--card-border)' }}>
+                <div className="flex items-center justify-between mt-5 pt-4 flex-wrap gap-3" style={{ borderTop: '1px solid var(--card-border)' }}>
                   <PhotoRow small photos={photos} onAdd={addPhoto} onRemove={removePhoto} />
-                  <button onClick={() => setResponding(true)} className="text-[13.5px] font-semibold" style={{ color: 'var(--accent-deep)' }}>Explore Features</button>
+                  <div className="flex items-center gap-3">
+                    <button onClick={saveWrittenEntry} disabled={!journal.trim()} className="text-[13.5px] font-semibold px-4 py-2 rounded-full"
+                      style={{ background: 'var(--ink)', color: 'var(--ink-text)', opacity: journal.trim() ? 1 : 0.4 }}>
+                      Save entry
+                    </button>
+                    <button onClick={() => setResponding(true)} className="text-[13.5px] font-semibold" style={{ color: 'var(--accent-deep)' }}>Explore Features</button>
+                  </div>
                 </div>
               )}
             </motion.section>
@@ -586,6 +795,9 @@ export default function MySpace() {
       <FloatingHope />
       <StormyAlert open={showStormy} onClose={() => setShowStormy(false)} />
       <GuestSignInPrompt open={showGuestGate} onClose={() => setShowGuestGate(false)} />
+      {showHistory && (
+        <HistoryOverlay entries={journalEntries} loading={entriesLoading} onClose={() => setShowHistory(false)} />
+      )}
     </div>
   );
 }
