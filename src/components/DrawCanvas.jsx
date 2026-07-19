@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabaseClient';
 
 const COLORS = ['#2B2B24', '#B5672A', '#5C7350', '#556577', '#A9AEC2'];
 
-export default function DrawCanvas({ onSendToChat }) {
+export default function DrawCanvas({ onSendToChat, onSaved }) {
   const { session } = useMood();
   const canvasRef = useRef(null);
   const drawing = useRef(false);
@@ -117,6 +117,11 @@ export default function DrawCanvas({ onSendToChat }) {
       if (uploadErr) { console.error('drawing upload failed:', uploadErr.message); setSaving(false); return; }
       const { error: insertErr } = await supabase.from('drawings').insert({ user_id: session.user.id, storage_path: path });
       if (insertErr) console.error('drawing record save failed:', insertErr.message);
+
+      // Also index this drawing into the unified journal_entries history, so it shows up
+      // under History → Drawings alongside written entries, voice notes, and photos.
+      onSaved?.(path);
+
       setSaving(false);
       clear();
       loadGallery();
@@ -150,13 +155,13 @@ export default function DrawCanvas({ onSendToChat }) {
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-3 mb-3 flex-wrap">
-        <button onClick={() => setTool('pen')} className="w-8 h-8 rounded-full flex items-center justify-center text-sm flex-shrink-0"
+        <button onClick={() => setTool('pen')} className="w-8 h-8 rounded-full flex items-center justify-center text-sm shrink-0"
           style={{ background: tool === 'pen' ? 'var(--ink)' : 'var(--surface)', color: tool === 'pen' ? 'var(--ink-text)' : 'var(--text)', border: '1px solid var(--card-border)' }} aria-label="Pen">✏️</button>
-        <button onClick={() => setTool('eraser')} className="w-8 h-8 rounded-full flex items-center justify-center text-sm flex-shrink-0"
+        <button onClick={() => setTool('eraser')} className="w-8 h-8 rounded-full flex items-center justify-center text-sm shrink-0"
           style={{ background: tool === 'eraser' ? 'var(--ink)' : 'var(--surface)', color: tool === 'eraser' ? 'var(--ink-text)' : 'var(--text)', border: '1px solid var(--card-border)' }} aria-label="Eraser">🧼</button>
         <div className="w-px h-6" style={{ background: 'var(--card-border)' }} />
         {COLORS.map((c) => (
-          <button key={c} onClick={() => { setColor(c); setTool('pen'); }} aria-label={`Colour ${c}`} className="w-6 h-6 rounded-full flex-shrink-0"
+          <button key={c} onClick={() => { setColor(c); setTool('pen'); }} aria-label={`Colour ${c}`} className="w-6 h-6 rounded-full shrink-0"
             style={{ background: c, border: color === c && tool === 'pen' ? '2px solid var(--accent-deep)' : '1px solid var(--card-border)' }} />
         ))}
         <input type="range" min={1} max={10} value={size} onChange={(e) => setSize(Number(e.target.value))} className="mx-2 w-24" />
@@ -174,12 +179,12 @@ export default function DrawCanvas({ onSendToChat }) {
           </button>
         </div>
       </div>
-      <canvas ref={canvasRef} className="flex-1 w-full rounded-2xl touch-none min-h-[180px]" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)', cursor: 'crosshair' }}
+      <canvas ref={canvasRef} className="flex-1 w-full rounded-2xl touch-none min-h-45" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)', cursor: 'crosshair' }}
         onMouseDown={start} onMouseMove={move} onMouseUp={end} onMouseLeave={end} onTouchStart={start} onTouchMove={move} onTouchEnd={end} />
       {gallery.length > 0 && (
         <div className="flex gap-2.5 mt-3 overflow-x-auto pb-1">
           {gallery.map((d) => (
-            <div key={d.id} className="relative flex-shrink-0 group">
+            <div key={d.id} className="relative shrink-0 group">
               <img src={d.url} alt="" className="w-16 h-16 rounded-xl object-cover" style={{ border: '1px solid var(--card-border)' }} />
               <button onClick={() => deleteDrawing(d)} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                 style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }} aria-label="Delete drawing">✕</button>
