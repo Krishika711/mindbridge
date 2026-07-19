@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import emailjs from 'emailjs-com';
 import MoodBackground from '../components/MoodBackground';
@@ -22,6 +22,355 @@ async function sendInviteEmail(contact, inviterName) {
     }
   );
 }
+
+// ---------- Hope Vault tape deck (walkman) ----------
+
+const TAPE_COLORS = ['#E6A93A', '#D98E4A', '#8CA283', '#7CA24A', '#D4537E', '#F0997B', '#C9A66B', '#7C93A2'];
+
+function formatDateLabel(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+function formatMonthLabel(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+}
+
+function TapeDeck({ session }) {
+  const [tapes, setTapes] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [activeTape, setActiveTape] = useState(null);
+  const [playing, setPlaying] = useState(false);
+  const [rewinding, setRewinding] = useState(false);
+  const [deckOpen, setDeckOpen] = useState(false);
+  const [linerShow, setLinerShow] = useState(false);
+  const [flying, setFlying] = useState(null); // { left, top, transform }
+
+  const deckWindowRef = useRef(null);
+  const shuffleRef = useRef(null);
+  const rowRefs = useRef(new Map());
+  const linerTimeoutRef = useRef(null);
+  const insertTimeoutRef = useRef(null);
+  const rewindTimeoutRef = useRef(null);
+
+  const loadTapes = async () => {
+    if (!session) { setLoading(false); return; }
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('hope_vault_tapes')
+      .select('id, voice_caption, text_scrap, photo_path, letter, created_at')
+      .eq('user_id', session.user.id)
+      .order('created_at', { ascending: false });
+    setLoading(false);
+    if (error) { console.error('vault tapes load failed:', error.message); return; }
+
+    const resolved = await Promise.all(
+      (data || []).map(async (t, i) => {
+        let photoUrl = null;
+        if (t.photo_path) {
+          const { data: signed, error: signErr } = await supabase.storage.from('media').createSignedUrl(t.photo_path, 3600);
+          if (signErr) console.error('vault photo signed url failed:', signErr.message);
+          else photoUrl = signed.signedUrl;
+        }
+        const title =
+          t.voice_caption ||
+          (t.text_scrap ? (t.text_scrap.length > 22 ? t.text_scrap.slice(0, 22) + '…' : t.text_scrap) : null) ||
+          (photoUrl ? 'A photo you loved' : null) ||
+          (t.letter ? 'Sealed letter' : 'Untitled tape');
+        return {
+          id: t.id,
+          title,
+          voice: t.voice_caption,
+          text: t.text_scrap,
+          photo: photoUrl,
+          letter: t.letter,
+          date: formatDateLabel(t.created_at),
+          month: formatMonthLabel(t.created_at),
+          color: TAPE_COLORS[i % TAPE_COLORS.length],
+        };
+      })
+    );
+    setTapes(resolved);
+  };
+
+  useEffect(() => {
+    loadTapes();
+    return () => {
+      clearTimeout(linerTimeoutRef.current);
+      clearTimeout(insertTimeoutRef.current);
+      clearTimeout(rewindTimeoutRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session]);
+
+  const months = [...new Set(tapes.map((t) => t.month))];
+
+  const stopPlayback = (reset) => {
+    setPlaying(false);
+    if (reset) {
+      setActiveTape(null);
+      setLinerShow(false);
+      clearTimeout(linerTimeoutRef.current);
+    }
+  };
+
+  const insertTape = (tape, sourceEl) => {
+    if (!tape || !deckWindowRef.current) return;
+    stopPlayback(false);
+    setLinerShow(false);
+    clearTimeout(linerTimeoutRef.current);
+    clearTimeout(insertTimeoutRef.current);
+
+    const startEl = sourceEl || shuffleRef.current;
+    const startRect = startEl ? startEl.getBoundingClientRect() : deckWindowRef.current.getBoundingClientRect();
+    const endRect = deckWindowRef.current.getBoundingClientRect();
+
+    setDeckOpen(true);
+    setFlying({
+      left: startRect.left,
+      top: startRect.top,
+      transform: 'scale(1) rotate(0deg)',
+    });
+
+    // let it paint at the start position first, then animate to the deck
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        setFlying({
+          left: endRect.left + endRect.width / 2 - 15,
+          top: endRect.top + endRect.height / 2 - 10,
+          transform: 'scale(1.6) rotate(2deg)',
+        });
+      });
+    });
+
+    insertTimeoutRef.current = setTimeout(() => {
+      setFlying(null);
+      setDeckOpen(false);
+      setActiveTape(tape);
+    }, 560);
+  };
+
+  const handleShuffle = () => {
+    if (!tapes.length) return;
+    const pick = tapes[Math.floor(Math.random() * tapes.length)];
+    insertTape(pick, rowRefs.current.get(pick.id));
+  };
+
+  const handlePlay = () => {
+    if (!activeTape) return;
+    setPlaying(true);
+    linerTimeoutRef.current = setTimeout(() => setLinerShow(true), 500);
+  };
+  const handlePause = () => setPlaying(false);
+  const handleStop = () => stopPlayback(true);
+  const handleRewind = () => {
+    if (!activeTape) return;
+    setRewinding(true);
+    rewindTimeoutRef.current = setTimeout(() => setRewinding(false), 900);
+  };
+
+  return (
+    <div className="rounded-3xl p-6 backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
+      <style>{`
+        @keyframes scReelSpin { to { transform: rotate(360deg); } }
+        @keyframes scReelSpinRev { to { transform: rotate(-360deg); } }
+        @keyframes scEqBounce { 0%, 100% { height: 20%; } 50% { height: 90%; } }
+        .sc-reel.spin { animation: scReelSpin 1.6s linear infinite; }
+        .sc-reel.spin.rev { animation: scReelSpinRev 0.5s linear infinite; }
+        .sc-eq span { width: 3px; background: #F0A857; opacity: 0.25; border-radius: 1px; height: 20%; display: block; transition: opacity 0.3s ease; }
+        .sc-eq.active span { opacity: 0.9; animation: scEqBounce 0.9s ease-in-out infinite; }
+        .sc-eq.active span:nth-child(1) { animation-delay: 0s; }
+        .sc-eq.active span:nth-child(2) { animation-delay: 0.12s; }
+        .sc-eq.active span:nth-child(3) { animation-delay: 0.24s; }
+        .sc-eq.active span:nth-child(4) { animation-delay: 0.08s; }
+        .sc-eq.active span:nth-child(5) { animation-delay: 0.2s; }
+        .sc-deck-flap { transition: transform 0.45s cubic-bezier(.3,.6,.3,1); transform-origin: top; }
+        .sc-deck-flap.open { transform: rotateX(-100deg); }
+        .sc-mini-tape:hover { background: rgba(255,255,255,0.05); }
+      `}</style>
+
+      <div className="flex items-center justify-between mb-1">
+        <div className="text-[11px] font-semibold tracking-[1.4px] uppercase" style={{ color: 'var(--accent-deep)' }}>
+          Hope Vault tapes
+        </div>
+        <button
+          ref={shuffleRef}
+          onClick={handleShuffle}
+          disabled={!tapes.length}
+          className="text-[10.5px] px-2.5 py-1 rounded-full"
+          style={{ border: '1px solid var(--card-border)', color: 'var(--accent-deep)', opacity: tapes.length ? 1 : 0.4 }}
+        >
+          Shuffle
+        </button>
+      </div>
+      <p className="text-xs mb-4" style={{ color: 'var(--text-faint)' }}>
+        Insert a tape from your Hope Vault and play it back, right here in your Safe Circle.
+      </p>
+
+      {!session && (
+        <p className="text-sm mb-2" style={{ color: 'var(--text-faint)' }}>
+          Sign in to load and play your Hope Vault tapes here.
+        </p>
+      )}
+      {session && loading && <p className="text-sm" style={{ color: 'var(--text-faint)' }}>Loading tapes…</p>}
+      {session && !loading && !tapes.length && (
+        <p className="text-sm mb-2" style={{ color: 'var(--text-faint)' }}>
+          No tapes filed yet — add some in Hope Vault first.
+        </p>
+      )}
+
+      <div className="flex gap-5 flex-wrap items-start justify-center">
+        {/* Walkman */}
+        <div
+          className="rounded-3xl p-5 relative flex-shrink-0"
+          style={{ width: 260, background: 'linear-gradient(150deg,#453b2c,#221d15 65%)', boxShadow: '0 30px 70px -25px rgba(0,0,0,0.55)', border: '1px solid rgba(255,210,150,0.14)' }}
+        >
+          <div className="rounded-xl mb-3 px-3.5 py-3" style={{ background: 'linear-gradient(180deg,#181209,#0f0c07)', border: '1px solid rgba(240,200,140,0.18)' }}>
+            <div className="text-[9px] tracking-[2px] uppercase mb-1" style={{ color: '#F0A857', opacity: 0.85 }}>Now playing</div>
+            <div className="text-[15px] italic mb-2" style={{ fontFamily: 'var(--font-display)', color: '#ECE8DA', minHeight: 20 }}>
+              {activeTape ? activeTape.title : 'Insert a tape'}
+            </div>
+            <div className={`sc-eq flex items-end gap-1 h-4 ${playing ? 'active' : ''}`}>
+              {[0, 1, 2, 3, 4].map((i) => <span key={i} />)}
+            </div>
+          </div>
+
+          <div ref={deckWindowRef} className="relative rounded-xl mb-3 p-3.5" style={{ background: 'linear-gradient(180deg,#0d0a06,#171009)', boxShadow: 'inset 0 4px 14px rgba(0,0,0,0.6)' }}>
+            <div
+              className={`sc-deck-flap absolute inset-0 rounded-xl flex items-center justify-center z-10 ${deckOpen ? 'open' : ''}`}
+              style={{ background: 'linear-gradient(180deg,#181209,#0f0c07)' }}
+            >
+              <div className="text-[10px] tracking-wide" style={{ color: '#767CA0' }}>insert a tape ↓</div>
+            </div>
+            <div className="rounded-lg p-3" style={{ background: 'linear-gradient(160deg,#e8ddc4,#cbbd98)' }}>
+              <div className="rounded px-2 py-1.5 mb-2.5 text-center" style={{ background: '#fbf5e5' }}>
+                <div className="text-[15px]" style={{ fontFamily: 'var(--font-hand, cursive)', color: '#4a3c22' }}>
+                  {activeTape ? activeTape.title : '— empty —'}
+                </div>
+              </div>
+              <div className="flex items-center justify-between px-2">
+                <div
+                  className={`sc-reel ${playing ? 'spin' : ''} ${rewinding ? 'rev' : ''}`}
+                  style={{ width: 40, height: 40, borderRadius: '50%', background: 'radial-gradient(circle,#2a251c 0 26%, #59503c 28% 55%, #2a251c 58% 100%)' }}
+                />
+                <div className="flex-1 mx-1.5" style={{ height: 3, background: '#2a251c', borderRadius: 2 }} />
+                <div
+                  className={`sc-reel ${playing ? 'spin' : ''} ${rewinding ? 'rev' : ''}`}
+                  style={{ width: 40, height: 40, borderRadius: '50%', background: 'radial-gradient(circle,#2a251c 0 26%, #59503c 28% 55%, #2a251c 58% 100%)' }}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-1.5 justify-center">
+            {[
+              { label: '⏪', onClick: handleRewind, title: 'Rewind' },
+              { label: '▶', onClick: handlePlay, title: 'Play' },
+              { label: '⏸', onClick: handlePause, title: 'Pause' },
+              { label: '⏹', onClick: handleStop, title: 'Eject / stop' },
+            ].map((b) => (
+              <button
+                key={b.title}
+                onClick={b.onClick}
+                disabled={!activeTape}
+                title={b.title}
+                className="w-10 h-9 rounded-lg flex items-center justify-center text-sm"
+                style={{ background: 'linear-gradient(180deg,#332c20,#211c14)', color: '#F0A857', border: '1px solid rgba(240,200,140,0.2)', opacity: activeTape ? 1 : 0.4 }}
+              >
+                {b.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Archive */}
+        {tapes.length > 0 && (
+          <div
+            className="rounded-2xl p-4 flex-shrink-0"
+            style={{ width: 220, maxHeight: 340, overflowY: 'auto', background: 'linear-gradient(160deg,#211c15,#171310)', border: '1px solid rgba(255,210,150,0.1)' }}
+          >
+            {months.map((month) => (
+              <div key={month} className="mb-3.5">
+                <div className="text-[13px] italic mb-1.5" style={{ fontFamily: 'var(--font-display)', color: '#AAB0C8' }}>{month}</div>
+                {tapes.filter((t) => t.month === month).map((t) => (
+                  <div
+                    key={t.id}
+                    ref={(el) => { if (el) rowRefs.current.set(t.id, el); else rowRefs.current.delete(t.id); }}
+                    onClick={(e) => insertTape(t, e.currentTarget)}
+                    className="sc-mini-tape flex items-center gap-2 p-1.5 rounded-lg cursor-pointer mb-1"
+                    style={{ background: activeTape?.id === t.id ? 'rgba(240,168,87,0.14)' : 'transparent' }}
+                  >
+                    <div className="rounded-sm flex-shrink-0 relative" style={{ width: 30, height: 20, background: 'linear-gradient(160deg,#e8ddc4,#cbbd98)' }}>
+                      <div style={{ position: 'absolute', top: 2, left: 2, right: 2, height: 4, borderRadius: 2, background: t.color }} />
+                    </div>
+                    <div className="text-[11px] leading-tight" style={{ color: '#AAB0C8' }}>
+                      <b className="block text-[12px]" style={{ color: '#ECE8DA' }}>{t.title}</b>
+                      {t.date}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Liner notes */}
+        {activeTape && (
+          <div
+            className="rounded-sm p-6 relative flex-shrink-0"
+            style={{
+              width: 250,
+              background: '#F6EFD9',
+              color: '#3a3020',
+              boxShadow: '0 24px 60px -18px rgba(0,0,0,0.5)',
+              transition: 'all 0.7s cubic-bezier(.2,.8,.2,1)',
+              opacity: linerShow ? 1 : 0,
+              transform: linerShow ? 'translateX(0) rotate(-1.8deg)' : 'translateX(-20px) rotate(-1.8deg)',
+              pointerEvents: linerShow ? 'auto' : 'none',
+            }}
+          >
+            {activeTape.photo && (
+              <div className="bg-white p-2 pb-5 mb-4" style={{ transform: 'rotate(2deg)', boxShadow: '0 10px 22px -8px rgba(0,0,0,0.3)' }}>
+                <img src={activeTape.photo} alt="" className="w-full aspect-square object-cover" />
+              </div>
+            )}
+            {activeTape.text && (
+              <div className="text-lg leading-relaxed mb-2" style={{ fontFamily: 'var(--font-hand, cursive)' }}>"{activeTape.text}"</div>
+            )}
+            {activeTape.voice && !activeTape.text && (
+              <div className="text-lg leading-relaxed mb-2" style={{ fontFamily: 'var(--font-hand, cursive)' }}>🎙️ {activeTape.voice}</div>
+            )}
+            {activeTape.letter && (
+              <div className="text-xs mb-2" style={{ color: '#8a7a55' }}>✉️ Sealed letter — stays private until a heavy day.</div>
+            )}
+            <div className="text-[10.5px] tracking-[1.4px] uppercase mt-3" style={{ color: '#8a7a55' }}>{activeTape.date}</div>
+          </div>
+        )}
+      </div>
+
+      {flying && (
+        <div
+          style={{
+            position: 'fixed',
+            zIndex: 60,
+            width: 30,
+            height: 20,
+            borderRadius: 3,
+            background: 'linear-gradient(160deg,#e8ddc4,#cbbd98)',
+            boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
+            pointerEvents: 'none',
+            transition: 'all 0.55s cubic-bezier(.3,.6,.3,1)',
+            left: flying.left,
+            top: flying.top,
+            transform: flying.transform,
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ---------- Safe Circle page ----------
 
 export default function SafeCircle() {
   const navigate = useNavigate();
@@ -108,7 +457,7 @@ export default function SafeCircle() {
             link to send you a small, wordless signal of support whenever you need it, no messages, no pressure.
           </p>
 
-          <div className="rounded-3xl p-6 backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
+          <div className="rounded-3xl p-6 backdrop-blur-md mb-6" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
             <div className="text-[11px] font-semibold tracking-[1.4px] uppercase mb-4" style={{ color: 'var(--accent-deep)' }}>
               YOUR CIRCLE ({circle.length} OF 5)
             </div>
@@ -199,6 +548,8 @@ export default function SafeCircle() {
               </div>
             )}
           </div>
+
+          <TapeDeck session={session} />
         </div>
       </main>
 
