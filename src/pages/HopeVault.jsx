@@ -1,10 +1,11 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import MoodBackground from '../components/MoodBackground';
 import Header from '../components/Header';
 import { HelpButton } from '../components/ui/Misc';
 import { useMood } from '../context/MoodContext';
+import { supabase } from '../lib/supabaseClient';
 
 const INPUT_TYPES = [
   { key: 'voice', icon: '🎙️', title: 'Yaps of today', desc: 'A quick unfiltered voice note, up to a minute.' },
@@ -12,6 +13,11 @@ const INPUT_TYPES = [
   { key: 'photo', icon: '📷', title: 'Photos you love', desc: 'A picture that makes you smile instantly.' },
   { key: 'letter', icon: '✉️', title: 'Something you wanna say', desc: 'A sealed letter to your future distressed self.', locked: true },
 ];
+
+function formatDateLabel(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
 
 function RecordOverlay({ onClose, onSave }) {
   const [recording, setRecording] = useState(false);
@@ -134,15 +140,17 @@ function TextOverlay({ title, hint, placeholder, cta, onClose, onSave }) {
 
 function PhotoOverlay({ onClose, onSave }) {
   const [preview, setPreview] = useState(null);
+  const [file, setFile] = useState(null);
   const fileRef = useRef(null);
   const dateLabel = new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 
   const handleFile = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setFile(f);
     const reader = new FileReader();
     reader.onload = () => setPreview(reader.result);
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(f);
   };
 
   return (
@@ -176,7 +184,7 @@ function PhotoOverlay({ onClose, onSave }) {
         <div className="flex gap-2.5">
           <button onClick={onClose} className="flex-1 py-2.5 rounded-full text-sm font-semibold" style={{ border: '1px solid var(--card-border)', color: 'var(--text)' }}>Cancel</button>
           <button
-            onClick={() => { if (preview) onSave(preview); }}
+            onClick={() => { if (file) onSave(file); }}
             className="flex-1 py-2.5 rounded-full text-sm font-semibold"
             style={{ background: 'var(--ink)', color: 'var(--ink-text)' }}
           >
@@ -190,40 +198,128 @@ function PhotoOverlay({ onClose, onSave }) {
 
 export default function HopeVault() {
   const navigate = useNavigate();
-  const { theme, mode, hopeTokens, addHopeToken, deleteHopeToken } = useMood();
+  const { theme, mode, session, isGuest } = useMood();
   const [unlocked, setUnlocked] = useState(false);
   const [openOverlay, setOpenOverlay] = useState(null);
-  const [session, setSessionParts] = useState({ voice: null, text: null, photo: null, letter: null });
+  const [session_, setSessionParts] = useState({ voice: null, text: null, photoFile: null, photoPreview: null, letter: null });
+  const [tapes, setTapes] = useState([]);
   const [filing, setFiling] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const loadTapes = async () => {
+    if (!session) { setLoading(false); return; }
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('hope_vault_tapes')
+      .select('id, voice_caption, text_scrap, photo_path, letter, created_at')
+      .eq('user_id', session.user.id)
+      .order('created_at', { ascending: false });
+    setLoading(false);
+    if (error) { console.error('tapes load failed:', error.message); return; }
+
+    const resolved = await Promise.all(
+      (data || []).map(async (t) => {
+        let photoUrl = null;
+        if (t.photo_path) {
+          const { data: signed, error: signErr } = await supabase.storage.from('media').createSignedUrl(t.photo_path, 3600);
+          if (signErr) console.error('tape photo signed url failed:', signErr.message);
+          else photoUrl = signed.signedUrl;
+        }
+        return {
+          id: t.id,
+          voice: t.voice_caption,
+          text: t.text_scrap,
+          photo: photoUrl,
+          photoPath: t.photo_path,
+          letter: t.letter,
+          date: formatDateLabel(t.created_at),
+        };
+      })
+    );
+    setTapes(resolved);
+  };
+
+  useEffect(() => { loadTapes(); }, [session]);
 
   const sessionTitle = (() => {
     const parts = [];
-    if (session.voice) parts.push(session.voice);
-    if (session.text) parts.push(session.text.length > 24 ? session.text.slice(0, 24) + '…' : session.text);
-    if (session.photo) parts.push('a photo');
-    if (session.letter) parts.push('a sealed letter');
+    if (session_.voice) parts.push(session_.voice);
+    if (session_.text) parts.push(session_.text.length > 24 ? session_.text.slice(0, 24) + '…' : session_.text);
+    if (session_.photoPreview) parts.push('a photo');
+    if (session_.letter) parts.push('a sealed letter');
     return parts.length ? parts.join(' + ') : 'Untitled, so far';
   })();
 
-  const hasAnyPart = !!(session.voice || session.text || session.photo || session.letter);
+  const hasAnyPart = !!(session_.voice || session_.text || session_.photoPreview || session_.letter);
 
   const savePart = (key, value) => {
-    setSessionParts((s) => ({ ...s, [key]: value }));
+    if (key === 'photo') {
+      setSessionParts((s) => ({ ...s, photoFile: value.file, photoPreview: value.preview }));
+    } else {
+      setSessionParts((s) => ({ ...s, [key]: value }));
+    }
     setOpenOverlay(null);
   };
 
   const fileAway = async () => {
-    if (!hasAnyPart) return;
+    if (!hasAnyPart || filing) return;
     setFiling(true);
-    await addHopeToken({ text: session.text, voice: session.voice, photo: session.photo, letter: session.letter });
-    setSessionParts({ voice: null, text: null, photo: null, letter: null });
+
+    if (!session) {
+      // Guest: no persistence, matches every other guest-mode feature in the app
+      setTapes((t) => [
+        { id: Date.now(), voice: session_.voice, text: session_.text, photo: session_.photoPreview, letter: session_.letter, date: 'Just now' },
+        ...t,
+      ]);
+      setSessionParts({ voice: null, text: null, photoFile: null, photoPreview: null, letter: null });
+      setFiling(false);
+      return;
+    }
+
+    let photoPath = null;
+    if (session_.photoFile) {
+      photoPath = `${session.user.id}/hope-photo-${Date.now()}.png`;
+      const { error: uploadErr } = await supabase.storage.from('media').upload(photoPath, session_.photoFile, { contentType: session_.photoFile.type });
+      if (uploadErr) { console.error('tape photo upload failed:', uploadErr.message); photoPath = null; }
+    }
+
+    const { data, error } = await supabase
+      .from('hope_vault_tapes')
+      .insert({
+        user_id: session.user.id,
+        voice_caption: session_.voice,
+        text_scrap: session_.text,
+        photo_path: photoPath,
+        letter: session_.letter,
+      })
+      .select('id, created_at')
+      .single();
+
     setFiling(false);
+    if (error) { console.error('tape save failed:', error.message); return; }
+
+    setTapes((t) => [
+      { id: data.id, voice: session_.voice, text: session_.text, photo: session_.photoPreview, photoPath, letter: session_.letter, date: formatDateLabel(data.created_at) },
+      ...t,
+    ]);
+    setSessionParts({ voice: null, text: null, photoFile: null, photoPreview: null, letter: null });
+  };
+
+  const deleteTape = async (tape) => {
+    setTapes((t) => t.filter((x) => x.id !== tape.id));
+    if (!session) return;
+    if (tape.photoPath) {
+      const { error: storageErr } = await supabase.storage.from('media').remove([tape.photoPath]);
+      if (storageErr) console.error('tape photo delete failed:', storageErr.message);
+    }
+    const { error } = await supabase.from('hope_vault_tapes').delete().eq('id', tape.id);
+    if (error) console.error('tape delete failed:', error.message);
   };
 
   return (
     <div className="app app-shell flex flex-col" data-theme={theme} data-mode={mode}>
       <MoodBackground showCelestial={false} />
-      <Header showBack showMoodSwitcher onSignOut={undefined} />
+      <Header showBack showMoodSwitcher />
 
       <main className="relative z-10 flex-1 flex flex-col items-center px-6 py-10">
         <div className="w-full max-w-2xl">
@@ -266,17 +362,13 @@ export default function HopeVault() {
                       <div className="italic text-lg mt-0.5" style={{ fontFamily: 'var(--font-display)', color: 'var(--accent-deep)' }}>{sessionTitle}</div>
                     </div>
                     <div className="flex gap-1.5">
-                      {['voice', 'text', 'photo', 'letter'].map((k) => (
+                      {['voice', 'text', 'photoPreview', 'letter'].map((k) => (
                         <div
                           key={k}
                           className="w-7 h-7 rounded-full flex items-center justify-center text-xs"
-                          style={{
-                            background: session[k] ? 'var(--accent)' : 'var(--surface)',
-                            border: '1px solid var(--card-border)',
-                            opacity: session[k] ? 1 : 0.3,
-                          }}
+                          style={{ background: session_[k] ? 'var(--accent)' : 'var(--surface)', border: '1px solid var(--card-border)', opacity: session_[k] ? 1 : 0.3 }}
                         >
-                          {{ voice: '🎙️', text: '✂️', photo: '📷', letter: '✉️' }[k]}
+                          {{ voice: '🎙️', text: '✂️', photoPreview: '📷', letter: '✉️' }[k]}
                         </div>
                       ))}
                     </div>
@@ -288,7 +380,7 @@ export default function HopeVault() {
                     onClick={fileAway}
                     disabled={!hasAnyPart || filing}
                     className="w-full py-3 rounded-full text-sm font-semibold"
-                    style={{ background: 'var(--ink)', color: 'var(--ink-text)', opacity: (hasAnyPart && !filing) ? 1 : 0.4 }}
+                    style={{ background: 'var(--ink)', color: 'var(--ink-text)', opacity: hasAnyPart && !filing ? 1 : 0.4 }}
                   >
                     {filing ? 'Filing…' : 'File this tape away'}
                   </button>
@@ -310,8 +402,10 @@ export default function HopeVault() {
                   ))}
                 </div>
 
+                {loading && <p className="text-sm text-center" style={{ color: 'var(--text-faint)' }}>Loading your vault…</p>}
+
                 <div className="grid sm:grid-cols-2 gap-3">
-                  {hopeTokens.map((t) => (
+                  {tapes.map((t) => (
                     <motion.div
                       key={t.id}
                       initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
@@ -319,12 +413,11 @@ export default function HopeVault() {
                       style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}
                     >
                       <button
-                        onClick={() => deleteHopeToken(t.id)}
+                        onClick={() => { if (window.confirm('Ye tape delete karni hai? Wapas nahi aayegi.')) deleteTape(t); }}
                         className="absolute top-3 right-3 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-                        style={{ color: 'var(--text-faint)' }}
-                        aria-label="Delete tape"
+                        style={{ color: '#C0523A' }}
                       >
-                        ✕
+                        Delete
                       </button>
                       {t.photo && <img src={t.photo} alt="" className="w-full h-32 object-cover rounded-xl" />}
                       {t.text && (
@@ -361,7 +454,11 @@ export default function HopeVault() {
           />
         )}
         {openOverlay === 'photo' && (
-          <PhotoOverlay onClose={() => setOpenOverlay(null)} onSave={(dataUrl) => savePart('photo', dataUrl)} />
+          <PhotoOverlay onClose={() => setOpenOverlay(null)} onSave={(file) => {
+            const reader = new FileReader();
+            reader.onload = () => savePart('photo', { file, preview: reader.result });
+            reader.readAsDataURL(file);
+          }} />
         )}
         {openOverlay === 'letter' && (
           <TextOverlay
