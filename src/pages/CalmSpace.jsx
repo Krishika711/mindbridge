@@ -1,195 +1,175 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import emailjs from 'emailjs-com';
+import { AnimatePresence, motion } from 'framer-motion';
 import MoodBackground from '../components/MoodBackground';
 import Header from '../components/Header';
 import { HelpButton } from '../components/ui/Misc';
 import { useMood } from '../context/MoodContext';
 import { supabase } from '../lib/supabaseClient';
 
-const TABS = [
-  { key: 'circle', label: 'My Circle' },
-  { key: 'vault', label: 'Comfort Vault' },
-];
-
-async function sendInviteEmail(contact, inviterName) {
-  emailjs.init(import.meta.env.VITE_EMAILJS_PUBLIC_KEY);
-  const inviteLink = `${window.location.origin}/support/${contact.link_token}`;
-  return emailjs.send(
-    import.meta.env.VITE_EMAILJS_SERVICE_ID,
-    import.meta.env.VITE_EMAILJS_INVITE_TEMPLATE_ID,
-    { to_name: contact.name, to_email: contact.email, inviter_name: inviterName || 'Someone who trusts you', invite_link: inviteLink, app_name: 'MindBridge+' }
-  );
-}
-
 function formatDateLabel(iso) {
   const d = new Date(iso);
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  if (d.toDateString() === today.toDateString()) {
+    return `Today, ${d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
+  }
+  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-function ComfortVault() {
-  const { session } = useMood();
-  const [tracks, setTracks] = useState([]); // real audio from voice_notes
-  const [current, setCurrent] = useState(0);
-  const [tapes, setTapes] = useState([]); // text/photo/letter liner notes from hope_vault_tapes
-  const [loading, setLoading] = useState(true);
+const MODES = [
+  { key: 'flow', label: 'Continuous Flow' },
+  { key: 'canvas', label: 'Blank Canvas' },
+  { key: 'manifest', label: 'Manifestation Matrix' },
+];
 
-  useEffect(() => {
-    if (!session) { setLoading(false); return; }
-    (async () => {
-      setLoading(true);
-      const { data: notes, error: notesErr } = await supabase
-        .from('voice_notes')
-        .select('id, storage_path, title, created_at')
-        .eq('user_id', session.user.id)
-        .order('created_at', { ascending: false });
-      if (notesErr) console.error('vault voice notes load failed:', notesErr.message);
-
-      const resolvedTracks = await Promise.all(
-        (notes || []).map(async (n) => {
-          const { data: signed, error: signErr } = await supabase.storage.from('media').createSignedUrl(n.storage_path, 3600);
-          if (signErr) { console.error('vault signed url failed:', signErr.message); return null; }
-          return { id: n.id, url: signed.signedUrl, title: n.title || 'Untitled voice note', date: formatDateLabel(n.created_at) };
-        })
-      );
-      setTracks(resolvedTracks.filter(Boolean));
-
-      const { data: tapeRows, error: tapesErr } = await supabase
-        .from('hope_vault_tapes')
-        .select('id, text_scrap, photo_path, letter, created_at')
-        .eq('user_id', session.user.id)
-        .order('created_at', { ascending: false });
-      if (tapesErr) console.error('vault tapes load failed:', tapesErr.message);
-
-      const resolvedTapes = await Promise.all(
-        (tapeRows || [])
-          .filter((t) => t.text_scrap || t.photo_path || t.letter)
-          .map(async (t) => {
-            let photoUrl = null;
-            if (t.photo_path) {
-              const { data: signed } = await supabase.storage.from('media').createSignedUrl(t.photo_path, 3600);
-              photoUrl = signed?.signedUrl || null;
-            }
-            return { id: t.id, text: t.text_scrap, photo: photoUrl, letter: t.letter, date: formatDateLabel(t.created_at) };
-          })
-      );
-      setTapes(resolvedTapes);
-      setLoading(false);
-    })();
-  }, [session]);
-
-  if (loading) return <p className="text-sm text-center py-10" style={{ color: 'var(--text-faint)' }}>Loading your vault…</p>;
-
-  if (tracks.length === 0 && tapes.length === 0) {
-    return (
-      <div className="rounded-3xl p-10 text-center backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
-        <p className="text-sm" style={{ color: 'var(--text-soft)' }}>Nothing filed away yet — record a voice note or add a tape in Hope Vault, and it'll show up here for a harder day.</p>
-      </div>
-    );
-  }
-
-  const track = tracks[current];
+// Bobs gently in place, forever — only disappears when tapped. No auto-timer.
+function Bubble({ id, text, onPop, tone }) {
+  const [drift] = useState(() => ({
+    x: Math.random() * 40 - 20,
+    left: 8 + Math.random() * 78,
+    top: 10 + Math.random() * 60,
+    duration: 4 + Math.random() * 3,
+  }));
 
   return (
-    <div className="flex flex-col gap-6">
-      {tracks.length > 0 && (
-        <div className="rounded-3xl p-7 backdrop-blur-md flex flex-col items-center gap-4" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
-          <div className="text-[11px] font-semibold tracking-[1.4px] uppercase" style={{ color: 'var(--accent-deep)' }}>🎧 Your own voice, from a better day</div>
-          <div className="text-center">
-            <div className="font-semibold text-lg" style={{ fontFamily: 'var(--font-display)' }}>{track.title}</div>
-            <div className="text-xs mt-0.5" style={{ color: 'var(--text-faint)' }}>{track.date} · {current + 1} of {tracks.length}</div>
-          </div>
-          <audio key={track.id} controls autoPlay={false} src={track.url} className="w-full max-w-sm" />
-          <div className="flex gap-3">
-            <button
-              onClick={() => setCurrent((c) => (c - 1 + tracks.length) % tracks.length)}
-              disabled={tracks.length < 2}
-              className="w-9 h-9 rounded-full flex items-center justify-center"
-              style={{ border: '1px solid var(--card-border)', color: 'var(--text)', opacity: tracks.length < 2 ? 0.3 : 1 }}
-            >⏮</button>
-            <button
-              onClick={() => setCurrent((c) => (c + 1) % tracks.length)}
-              disabled={tracks.length < 2}
-              className="w-9 h-9 rounded-full flex items-center justify-center"
-              style={{ border: '1px solid var(--card-border)', color: 'var(--text)', opacity: tracks.length < 2 ? 0.3 : 1 }}
-            >⏭</button>
-          </div>
-        </div>
-      )}
-
-      {tapes.length > 0 && (
-        <div>
-          <div className="text-[11px] font-semibold tracking-[1.4px] uppercase mb-3" style={{ color: 'var(--accent-deep)' }}>💌 Liner notes</div>
-          <div className="grid sm:grid-cols-2 gap-3">
-            {tapes.map((t) => (
-              <div key={t.id} className="rounded-2xl p-4 flex flex-col gap-2.5" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
-                {t.photo && <img src={t.photo} alt="" className="w-full h-28 object-cover rounded-xl" />}
-                {t.text && <p className="italic text-sm leading-relaxed" style={{ fontFamily: 'var(--font-display)' }}>"{t.text}"</p>}
-                {t.letter && <div className="text-sm" style={{ color: 'var(--text-soft)' }}>✉️ {t.letter}</div>}
-                <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{t.date}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
+    <motion.button
+      onClick={() => onPop(id)}
+      initial={{ opacity: 0, scale: 0.6 }}
+      animate={{
+        opacity: 1,
+        scale: 1,
+        y: [0, -18, 0],
+        x: [0, drift.x, 0],
+      }}
+      exit={{ scale: 0, opacity: 0 }}
+      transition={{
+        opacity: { duration: 0.4 },
+        scale: { duration: 0.4 },
+        y: { duration: drift.duration, repeat: Infinity, ease: 'easeInOut' },
+        x: { duration: drift.duration * 1.3, repeat: Infinity, ease: 'easeInOut' },
+      }}
+      className="absolute px-5 py-3 rounded-full text-sm max-w-55 text-left leading-snug"
+      style={{
+        left: `${drift.left}%`,
+        top: `${drift.top}%`,
+        background: tone === 'manifest' ? 'var(--accent)' : 'var(--surface-strong)',
+        border: '1px solid var(--card-border)',
+        color: 'var(--text)',
+        boxShadow: '0 8px 24px -10px rgba(0,0,0,0.25)',
+      }}
+    >
+      {text}
+    </motion.button>
   );
 }
 
-export default function SafeCircle() {
+export default function CalmSpace() {
   const navigate = useNavigate();
-  const { theme, mode, session, userName } = useMood();
-  const [tab, setTab] = useState('circle');
-  const [circle, setCircle] = useState([]);
-  const [showForm, setShowForm] = useState(false);
-  const [name, setName] = useState('');
-  const [role, setRole] = useState('');
-  const [email, setEmail] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
+  const { theme, mode, session, isGuest } = useMood();
+  const [tab, setTab] = useState('flow');
 
-  const loadCircle = async () => {
+  const [flowActive, setFlowActive] = useState(false);
+  const [flowText, setFlowText] = useState('');
+  const [flowSaving, setFlowSaving] = useState(false);
+  const [entries, setEntries] = useState([]);
+  const textareaRef = useRef(null);
+
+  const [canvasDraft, setCanvasDraft] = useState('');
+  const [bubbles, setBubbles] = useState([]);
+
+  const [manifestDraft, setManifestDraft] = useState('');
+  const [manifestBubbles, setManifestBubbles] = useState([]);
+  const [placed, setPlaced] = useState([]);
+
+  useEffect(() => {
     if (!session) return;
-    const { data, error: loadErr } = await supabase
-      .from('safe_circle_contacts')
-      .select('id, name, role, email, link_token, created_at')
+    supabase
+      .from('notes')
+      .select('id, text, source, created_at')
       .eq('user_id', session.user.id)
-      .order('created_at', { ascending: true });
-    if (loadErr) { console.error('circle load failed:', loadErr.message); return; }
-    setCircle(data || []);
+      .in('source', ['calm_space', 'manifestation'])
+      .order('created_at', { ascending: false })
+      .limit(10)
+      .then(({ data, error }) => {
+        if (error) { console.error('calm space entries load failed:', error.message); return; }
+        setEntries(data || []);
+      });
+  }, [session]);
+
+  // Synthesized pop sound — created fresh per pop since browsers require
+  // AudioContext to originate from a real user interaction (the tap itself).
+  const playPop = () => {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(600, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(180, ctx.currentTime + 0.12);
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.15);
   };
 
-  useEffect(() => { loadCircle(); }, [session]);
+  const handleFlowKeyDown = (e) => {
+    if (flowActive && (e.key === 'Backspace' || e.key === 'Delete')) e.preventDefault();
+  };
 
-  const addPerson = async () => {
-    setError('');
-    if (!name.trim() || !email.trim()) { setError('Name aur email dono chahiye.'); return; }
-    if (circle.length >= 5) { setError('Circle already has 5 people — the max.'); return; }
-    setSaving(true);
-    const { data, error: insertErr } = await supabase
-      .from('safe_circle_contacts')
-      .insert({ user_id: session.user.id, name: name.trim(), role: role.trim() || null, email: email.trim() })
-      .select('id, name, role, email, link_token')
+  const handleFlowFinish = async () => {
+    const trimmed = flowText.trim();
+    setFlowActive(false);
+    setFlowText('');
+    if (!trimmed || !session) return;
+    setFlowSaving(true);
+    const { data, error } = await supabase
+      .from('notes')
+      .insert({ user_id: session.user.id, text: trimmed, source: 'calm_space' })
+      .select('id, text, source, created_at')
       .single();
-
-    if (insertErr) { setError(insertErr.message); setSaving(false); return; }
-
-    try {
-      await sendInviteEmail(data, userName);
-    } catch (emailErr) {
-      console.error('invite email failed:', emailErr.message || emailErr);
-    }
-
-    setCircle((c) => [...c, data]);
-    setName(''); setRole(''); setEmail('');
-    setShowForm(false);
-    setSaving(false);
+    setFlowSaving(false);
+    if (error) { console.error('calm space save failed:', error.message); return; }
+    setEntries((e) => [data, ...e]);
   };
 
-  const removePerson = async (id) => {
-    setCircle((c) => c.filter((p) => p.id !== id));
-    const { error: delErr } = await supabase.from('safe_circle_contacts').delete().eq('id', id);
-    if (delErr) console.error('remove contact failed:', delErr.message);
+  const spawnBubble = () => {
+    const text = canvasDraft.trim();
+    if (!text) return;
+    setBubbles((b) => [...b, { id: Date.now(), text }]);
+    setCanvasDraft('');
+  };
+  const popBubble = (id) => {
+    playPop();
+    setBubbles((b) => b.filter((x) => x.id !== id));
+  };
+
+  const spawnManifestBubble = () => {
+    if (placed.length >= 3) return;
+    const text = manifestDraft.trim();
+    if (!text) return;
+    setManifestBubbles((b) => [...b, { id: Date.now(), text }]);
+    setManifestDraft('');
+  };
+
+  const resolveManifestBubble = async (id) => {
+    playPop();
+    const bubble = manifestBubbles.find((b) => b.id === id);
+    setManifestBubbles((b) => b.filter((x) => x.id !== id));
+    if (!bubble) return;
+
+    setPlaced((p) => [...p, bubble]);
+    if (session) {
+      const { data, error } = await supabase
+        .from('notes')
+        .insert({ user_id: session.user.id, text: bubble.text, source: 'manifestation' })
+        .select('id, text, source, created_at')
+        .single();
+      if (error) { console.error('manifestation save failed:', error.message); return; }
+      setEntries((e) => [data, ...e]);
+    }
   };
 
   return (
@@ -202,89 +182,172 @@ export default function SafeCircle() {
           <button onClick={() => navigate(-1)} className="text-sm mb-6" style={{ color: 'var(--text-soft)' }}>← Back</button>
 
           <div className="flex items-center gap-3 mb-2">
-            <div className="w-11 h-11 rounded-xl flex items-center justify-center text-xl" style={{ background: 'var(--ink)', color: 'var(--ink-text)' }}>🤝</div>
-            <h1 className="text-3xl" style={{ fontFamily: 'var(--font-display)', fontWeight: 600 }}>Safe Circle</h1>
+            <div className="w-11 h-11 rounded-xl flex items-center justify-center text-xl" style={{ background: 'var(--ink)', color: 'var(--ink-text)' }}>😌</div>
+            <h1 className="text-3xl" style={{ fontFamily: 'var(--font-display)', fontWeight: 600 }}>Calm Space</h1>
           </div>
 
           <div className="flex gap-2 mb-6 flex-wrap">
-            {TABS.map((t) => (
+            {MODES.map((m) => (
               <button
-                key={t.key}
-                onClick={() => setTab(t.key)}
+                key={m.key}
+                onClick={() => setTab(m.key)}
                 className="px-3.5 py-1.5 rounded-full text-[12.5px] font-semibold"
-                style={tab === t.key ? { background: 'var(--ink)', color: 'var(--ink-text)' } : { border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}
+                style={
+                  tab === m.key
+                    ? { background: 'var(--ink)', color: 'var(--ink-text)' }
+                    : { border: '1px solid var(--card-border)', color: 'var(--text-soft)' }
+                }
               >
-                {t.label}
+                {m.label}
               </button>
             ))}
           </div>
 
-          {tab === 'circle' && (
+          {tab === 'flow' && (
             <>
               <p className="mb-6 max-w-lg text-[15px] leading-relaxed" style={{ color: 'var(--text-soft)' }}>
-                Designate up to five people you trust completely. They don't need an account — they get a private
-                link to send you a small, wordless signal of support whenever you need it.
+                Backspace is disabled once you start — a pure, unfiltered release. Saved when you finish.
               </p>
-
-              <div className="rounded-3xl p-6 backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
-                <div className="text-[11px] font-semibold tracking-[1.4px] uppercase mb-4" style={{ color: 'var(--accent-deep)' }}>
-                  YOUR CIRCLE ({circle.length} OF 5)
-                </div>
-
-                {circle.length === 0 && <div className="text-sm mb-4" style={{ color: 'var(--text-faint)' }}>Nobody added yet.</div>}
-
-                <div className="flex flex-col gap-3">
-                  {circle.map((p) => (
-                    <div key={p.id} className="group flex items-center justify-between rounded-2xl p-4" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
-                      <div className="flex items-center gap-3">
-                        <div className="w-11 h-11 rounded-full flex items-center justify-center text-sm font-semibold" style={{ background: 'var(--card-border)' }}>
-                          {p.name.charAt(0).toUpperCase()}
-                        </div>
-                        <div>
-                          <div className="font-semibold text-[15px]">{p.name}</div>
-                          <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{p.role || 'Invited'}</div>
-                        </div>
-                      </div>
-                      <button onClick={() => removePerson(p.id)} className="text-xs opacity-0 group-hover:opacity-100 transition-opacity px-2" style={{ color: 'var(--text-faint)' }}>Remove</button>
-                    </div>
-                  ))}
-                </div>
-
-                {!showForm && circle.length < 5 && (
-                  <button onClick={() => setShowForm(true)} className="mt-4 flex items-center gap-2 text-sm font-medium" style={{ color: 'var(--accent-deep)' }}>
-                    <span className="text-lg leading-none">+</span> Add person
+              {!flowActive ? (
+                <div className="rounded-3xl p-10 flex flex-col items-center gap-5 text-center backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
+                  <p className="text-sm max-w-xs" style={{ color: 'var(--text-soft)' }}>Ready to let it out without stopping to edit or judge?</p>
+                  <button
+                    onClick={() => { setFlowActive(true); setTimeout(() => textareaRef.current?.focus(), 50); }}
+                    className="px-7 py-3 rounded-full text-sm font-medium"
+                    style={{ background: 'var(--ink)', color: 'var(--ink-text)' }}
+                  >
+                    Start Continuous Flow
                   </button>
-                )}
+                </div>
+              ) : (
+                <div className="rounded-3xl p-8 backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
+                  <div className="text-xs mb-4" style={{ color: 'var(--text-faint)' }}>Backspace is off. Just keep going.</div>
+                  <textarea
+                    ref={textareaRef}
+                    value={flowText}
+                    onChange={(e) => setFlowText(e.target.value)}
+                    onKeyDown={handleFlowKeyDown}
+                    placeholder="Start typing and don't stop…"
+                    className="w-full resize-none outline-none border-none bg-transparent italic text-xl leading-relaxed min-h-[220px]"
+                    style={{ fontFamily: 'var(--font-display)', color: 'var(--text)' }}
+                  />
+                  <button
+                    onClick={handleFlowFinish}
+                    disabled={flowSaving}
+                    className="mt-4 px-6 py-2.5 rounded-full text-[13.5px] font-semibold"
+                    style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', color: 'var(--text)', opacity: flowSaving ? 0.6 : 1 }}
+                  >
+                    {flowSaving ? 'Saving…' : 'Release & Finish'}
+                  </button>
+                </div>
+              )}
+            </>
+          )}
 
-                {showForm && (
-                  <div className="mt-4 rounded-2xl p-4" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
-                    <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name (e.g. Priya)"
-                      className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none mb-2" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', color: 'var(--text)' }} />
-                    <input value={role} onChange={(e) => setRole(e.target.value)} placeholder="Relationship (e.g. Best friend) — optional"
-                      className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none mb-2" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', color: 'var(--text)' }} />
-                    <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="their@email.com" type="email"
-                      className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none mb-3" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', color: 'var(--text)' }} />
-                    {error && <p className="text-xs mb-2.5" style={{ color: '#C0523A' }}>{error}</p>}
-                    <div className="flex gap-2">
-                      <button onClick={() => { setShowForm(false); setError(''); }} className="flex-1 py-2 rounded-full text-[13px] font-semibold" style={{ border: '1px solid var(--card-border)', color: 'var(--text)' }}>Cancel</button>
-                      <button onClick={addPerson} disabled={saving} className="flex-1 py-2 rounded-full text-[13px] font-semibold" style={{ background: 'var(--ink)', color: 'var(--ink-text)', opacity: saving ? 0.6 : 1 }}>
-                        {saving ? 'Sending invite…' : 'Add & send invite'}
-                      </button>
+          {tab === 'canvas' && (
+            <>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-[15px]" style={{ color: 'var(--text-soft)' }}>Type a thought, press enter, watch it float.</p>
+                <div className="text-xs px-2.5 py-1 rounded-full shrink-0" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)', color: 'var(--text-faint)' }}>
+                  {bubbles.length} bubble{bubbles.length === 1 ? '' : 's'}
+                </div>
+              </div>
+              <div className="relative rounded-3xl overflow-hidden backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', height: 420 }}>
+                <AnimatePresence>
+                  {bubbles.map((b) => (
+                    <Bubble key={b.id} id={b.id} text={b.text} onPop={popBubble} tone="canvas" />
+                  ))}
+                </AnimatePresence>
+                <div className="absolute bottom-0 left-0 right-0 p-4 flex items-center gap-2.5" style={{ borderTop: '1px solid var(--card-border)', background: 'var(--card-bg)' }}>
+                  <input
+                    value={canvasDraft}
+                    onChange={(e) => setCanvasDraft(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && spawnBubble()}
+                    placeholder="Type what's on your mind, then press enter…"
+                    className="flex-1 bg-transparent outline-none border-none text-sm"
+                    style={{ color: 'var(--text)' }}
+                  />
+                </div>
+                <div className="absolute bottom-16 left-0 right-0 text-center text-xs" style={{ color: 'var(--text-faint)' }}>
+                  bubbles float here until you tap one away
+                </div>
+              </div>
+              <p className="text-xs mt-3" style={{ color: 'var(--text-faint)' }}>
+                Nothing here is saved — that's the point. It's meant to pass through, not stay.
+              </p>
+            </>
+          )}
+
+          {tab === 'manifest' && (
+            <>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-[15px]" style={{ color: 'var(--text-soft)' }}>
+                  Write 3 present-tense affirmations. Tap each bubble to send it to your dashboard.
+                </p>
+                <div className="text-xs px-2.5 py-1 rounded-full shrink-0" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)', color: 'var(--text-faint)' }}>
+                  {placed.length} / 3 placed
+                </div>
+              </div>
+              <div className="relative rounded-3xl overflow-hidden backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', height: 420 }}>
+                <AnimatePresence>
+                  {manifestBubbles.map((b) => (
+                    <Bubble key={b.id} id={b.id} text={b.text} onPop={resolveManifestBubble} tone="manifest" />
+                  ))}
+                </AnimatePresence>
+
+                <div className="absolute top-4 right-4 w-52 rounded-2xl p-3.5" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)' }}>
+                  <div className="text-xs font-bold mb-1.5" style={{ color: 'var(--accent-deep)' }}>✨ Manifestation Dashboard</div>
+                  {placed.length === 0 ? (
+                    <div className="text-[11px]" style={{ color: 'var(--text-faint)' }}>Nothing placed yet.</div>
+                  ) : (
+                    <div className="flex flex-col gap-1.5">
+                      {placed.map((p) => (
+                        <div key={p.id} className="text-[11px] leading-snug" style={{ color: 'var(--text)' }}>• {p.text}</div>
+                      ))}
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
+
+                <div className="absolute bottom-0 left-0 right-0 p-4 flex items-center gap-2.5" style={{ borderTop: '1px solid var(--card-border)', background: 'var(--card-bg)' }}>
+                  <input
+                    value={manifestDraft}
+                    onChange={(e) => setManifestDraft(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && spawnManifestBubble()}
+                    placeholder={placed.length >= 3 ? 'All 3 placed for today ✨' : 'e.g. I am completely capable of handling today…'}
+                    disabled={placed.length >= 3}
+                    className="flex-1 bg-transparent outline-none border-none text-sm"
+                    style={{ color: 'var(--text)' }}
+                  />
+                </div>
+                <div className="absolute bottom-16 left-0 right-0 text-center text-xs" style={{ color: 'var(--text-faint)' }}>
+                  bubbles float here — tap one to place it on your dashboard
+                </div>
               </div>
             </>
           )}
 
-          {tab === 'vault' && (
-            <>
-              <p className="mb-6 max-w-lg text-[15px] leading-relaxed" style={{ color: 'var(--text-soft)' }}>
-                Your own recorded voice and saved moments from better days — kept here for when you need reminding.
-              </p>
-              <ComfortVault />
-            </>
-          )}
+          <div className="mt-10">
+            <div className="text-[11px] font-bold tracking-[1.4px] uppercase mb-3" style={{ color: 'var(--accent-deep)' }}>Past Releases</div>
+            {isGuest && <div className="text-xs" style={{ color: 'var(--text-faint)' }}>Sign in to save and revisit what you write here.</div>}
+            {!isGuest && entries.length === 0 && (
+              <div className="text-xs" style={{ color: 'var(--text-faint)' }}>Nothing saved yet — Continuous Flow releases and placed affirmations show up here.</div>
+            )}
+            <div className="flex flex-col gap-2.5">
+              {entries.map((e) => (
+                <div key={e.id} className="rounded-2xl p-4" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{formatDateLabel(e.created_at)}</div>
+                    {e.source === 'manifestation' && (
+                      <div className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: 'var(--accent)', color: 'var(--ink)' }}>✨ affirmation</div>
+                    )}
+                  </div>
+                  <p className="text-sm italic leading-relaxed" style={{ fontFamily: 'var(--font-display)', color: 'var(--text)' }}>
+                    {e.text.length > 200 ? e.text.slice(0, 200) + '…' : e.text}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </main>
 
