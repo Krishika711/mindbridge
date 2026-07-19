@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import emailjs from 'emailjs-com';
 import MoodBackground from '../components/MoodBackground';
@@ -25,9 +25,15 @@ async function sendInviteEmail(contact, inviterName) {
 
 // ---------- Hope Vault tapes (read / listen / watch) ----------
 
+const TAPE_COLORS = ['#E6A93A', '#D98E4A', '#8CA283', '#7CA24A', '#D4537E', '#F0997B', '#C9A66B', '#7C93A2'];
+
 function formatDateLabel(iso) {
   const d = new Date(iso);
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+function formatMonthLabel(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
 }
 
 function GossipCard({ tape }) {
@@ -37,31 +43,6 @@ function GossipCard({ tape }) {
         "{tape.text}"
       </p>
       <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{tape.date}</div>
-    </div>
-  );
-}
-
-function YapRow({ tape, isPlaying, onToggle }) {
-  return (
-    <div className="rounded-2xl p-4" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <button
-            onClick={onToggle}
-            className="w-10 h-10 rounded-full flex items-center justify-center text-sm flex-shrink-0"
-            style={{ background: 'var(--ink)', color: 'var(--ink-text)' }}
-          >
-            {isPlaying ? '⏸' : '▶'}
-          </button>
-          <div className="min-w-0">
-            <div className="text-sm font-semibold truncate">{tape.voice}</div>
-            <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{tape.date}</div>
-          </div>
-        </div>
-        <div className={`sc-eq flex items-end gap-1 h-4 flex-shrink-0 ${isPlaying ? 'active' : ''}`} style={{ width: 26 }}>
-          {[0, 1, 2, 3, 4].map((i) => <span key={i} />)}
-        </div>
-      </div>
     </div>
   );
 }
@@ -95,11 +76,163 @@ function PhotoLightbox({ tape, onClose }) {
   );
 }
 
+// Walkman-style player for Yaps (voice tapes)
+function WalkmanPlayer({ yaps }) {
+  const [activeTape, setActiveTape] = useState(null);
+  const [playing, setPlaying] = useState(false);
+  const [rewinding, setRewinding] = useState(false);
+  const rewindTimeoutRef = useRef(null);
+
+  useEffect(() => () => clearTimeout(rewindTimeoutRef.current), []);
+
+  const months = [...new Set(yaps.map((t) => t.month))];
+
+  const insertTape = (tape) => {
+    setActiveTape(tape);
+    setPlaying(false);
+  };
+  const handlePlay = () => { if (activeTape) setPlaying(true); };
+  const handlePause = () => setPlaying(false);
+  const handleStop = () => { setPlaying(false); setActiveTape(null); };
+  const handleRewind = () => {
+    if (!activeTape) return;
+    setRewinding(true);
+    rewindTimeoutRef.current = setTimeout(() => setRewinding(false), 900);
+  };
+  const handleShuffle = () => {
+    if (!yaps.length) return;
+    insertTape(yaps[Math.floor(Math.random() * yaps.length)]);
+  };
+
+  return (
+    <div className="flex gap-5 flex-wrap items-start justify-center">
+      <style>{`
+        @keyframes scReelSpin { to { transform: rotate(360deg); } }
+        @keyframes scReelSpinRev { to { transform: rotate(-360deg); } }
+        @keyframes scEqBounce { 0%, 100% { height: 20%; } 50% { height: 90%; } }
+        .sc-reel.spin { animation: scReelSpin 1.6s linear infinite; }
+        .sc-reel.spin.rev { animation: scReelSpinRev 0.5s linear infinite; }
+        .sc-eq span { width: 3px; background: var(--accent); opacity: 0.3; border-radius: 1px; height: 20%; display: block; transition: opacity 0.3s ease; }
+        .sc-eq.active span { opacity: 0.9; animation: scEqBounce 0.9s ease-in-out infinite; }
+        .sc-eq.active span:nth-child(1) { animation-delay: 0s; }
+        .sc-eq.active span:nth-child(2) { animation-delay: 0.12s; }
+        .sc-eq.active span:nth-child(3) { animation-delay: 0.24s; }
+        .sc-eq.active span:nth-child(4) { animation-delay: 0.08s; }
+        .sc-eq.active span:nth-child(5) { animation-delay: 0.2s; }
+        .sc-mini-tape:hover { background: var(--surface); }
+      `}</style>
+
+      {/* Walkman device */}
+      <div
+        className="rounded-3xl p-5 relative flex-shrink-0"
+        style={{ width: 260, background: 'var(--ink)', boxShadow: '0 30px 70px -25px rgba(0,0,0,0.45)', border: '1px solid var(--card-border)' }}
+      >
+        <div className="rounded-xl mb-3 px-3.5 py-3" style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.08)' }}>
+          <div className="text-[9px] tracking-[2px] uppercase mb-1" style={{ color: 'var(--accent)', opacity: 0.9 }}>Now playing</div>
+          <div className="text-[15px] italic mb-2" style={{ fontFamily: 'var(--font-display)', color: 'var(--ink-text)', minHeight: 20 }}>
+            {activeTape ? activeTape.voice : 'Insert a tape'}
+          </div>
+          <div className={`sc-eq flex items-end gap-1 h-4 ${playing ? 'active' : ''}`}>
+            {[0, 1, 2, 3, 4].map((i) => <span key={i} />)}
+          </div>
+        </div>
+
+        <div className="rounded-xl mb-3 p-3.5" style={{ background: 'rgba(0,0,0,0.4)', boxShadow: 'inset 0 4px 14px rgba(0,0,0,0.35)' }}>
+          {!activeTape ? (
+            <div className="text-center py-6 text-[11px] tracking-wide" style={{ color: 'var(--ink-text)', opacity: 0.6 }}>
+              insert a tape ↓
+            </div>
+          ) : (
+            <div className="rounded-lg p-3" style={{ background: 'linear-gradient(160deg,#e8ddc4,#cbbd98)' }}>
+              <div className="rounded px-2 py-1.5 mb-2.5 text-center" style={{ background: '#fbf5e5' }}>
+                <div className="text-[15px] truncate" style={{ fontFamily: 'var(--font-hand, cursive)', color: '#4a3c22' }}>
+                  {activeTape.voice}
+                </div>
+              </div>
+              <div className="flex items-center justify-between px-2">
+                <div
+                  className={`sc-reel ${playing ? 'spin' : ''} ${rewinding ? 'rev' : ''}`}
+                  style={{ width: 40, height: 40, borderRadius: '50%', background: 'radial-gradient(circle,#2a251c 0 26%, #59503c 28% 55%, #2a251c 58% 100%)' }}
+                />
+                <div className="flex-1 mx-1.5" style={{ height: 3, background: '#2a251c', borderRadius: 2 }} />
+                <div
+                  className={`sc-reel ${playing ? 'spin' : ''} ${rewinding ? 'rev' : ''}`}
+                  style={{ width: 40, height: 40, borderRadius: '50%', background: 'radial-gradient(circle,#2a251c 0 26%, #59503c 28% 55%, #2a251c 58% 100%)' }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex gap-1.5 justify-center">
+          {[
+            { label: '▶', onClick: handlePlay, title: 'Play' },
+            { label: '⏸', onClick: handlePause, title: 'Pause' },
+            { label: '⏪', onClick: handleRewind, title: 'Rewind' },
+            { label: '⏹', onClick: handleStop, title: 'Eject / stop' },
+          ].map((b) => (
+            <button
+              key={b.title}
+              onClick={b.onClick}
+              disabled={!activeTape}
+              title={b.title}
+              className="w-10 h-9 rounded-lg flex items-center justify-center text-sm"
+              style={{ background: 'rgba(0,0,0,0.35)', color: 'var(--accent)', border: '1px solid rgba(255,255,255,0.1)', opacity: activeTape ? 1 : 0.4 }}
+            >
+              {b.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Archive */}
+      {yaps.length > 0 && (
+        <div
+          className="rounded-2xl p-4 flex-shrink-0"
+          style={{ width: 240, maxHeight: 360, overflowY: 'auto', background: 'var(--ink)', border: '1px solid var(--card-border)' }}
+        >
+          <div className="flex items-center justify-between mb-3 gap-2">
+            <div className="text-[10.5px] tracking-[1.4px] uppercase" style={{ color: 'var(--text-faint)' }}>Archive</div>
+            <button
+              onClick={handleShuffle}
+              className="text-[10.5px] px-2.5 py-1 rounded-full flex items-center gap-1"
+              style={{ border: '1px solid rgba(255,255,255,0.15)', color: 'var(--accent)' }}
+            >
+              🎲 Random tape
+            </button>
+          </div>
+
+          {months.map((month) => (
+            <div key={month} className="mb-3.5">
+              <div className="text-[13px] italic mb-1.5" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-soft)' }}>{month}</div>
+              {yaps.filter((t) => t.month === month).map((t) => (
+                <div
+                  key={t.id}
+                  onClick={() => insertTape(t)}
+                  className="sc-mini-tape flex items-center gap-2 p-1.5 rounded-lg cursor-pointer mb-1"
+                  style={{ background: activeTape?.id === t.id ? 'rgba(255,255,255,0.08)' : 'transparent' }}
+                >
+                  <div className="rounded-sm flex-shrink-0 relative" style={{ width: 30, height: 20, background: 'linear-gradient(160deg,#e8ddc4,#cbbd98)' }}>
+                    <div style={{ position: 'absolute', top: 2, left: 2, right: 2, height: 4, borderRadius: 2, background: t.color }} />
+                  </div>
+                  <div className="text-[11px] leading-tight" style={{ color: 'var(--text-soft)' }}>
+                    <b className="block text-[12px] truncate" style={{ color: 'var(--ink-text)', maxWidth: 150 }}>{t.voice}</b>
+                    {t.date}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function HopeVaultTapes({ session }) {
   const [tapes, setTapes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [category, setCategory] = useState('gossips');
-  const [playingId, setPlayingId] = useState(null);
   const [lightboxTape, setLightboxTape] = useState(null);
 
   useEffect(() => {
@@ -115,7 +248,7 @@ function HopeVaultTapes({ session }) {
       if (error) { console.error('vault tapes load failed:', error.message); return; }
 
       const resolved = await Promise.all(
-        (data || []).map(async (t) => {
+        (data || []).map(async (t, i) => {
           let photoUrl = null;
           if (t.photo_path) {
             const { data: signed, error: signErr } = await supabase.storage.from('media').createSignedUrl(t.photo_path, 3600);
@@ -128,6 +261,8 @@ function HopeVaultTapes({ session }) {
             text: t.text_scrap,
             photo: photoUrl,
             date: formatDateLabel(t.created_at),
+            month: formatMonthLabel(t.created_at),
+            color: TAPE_COLORS[i % TAPE_COLORS.length],
           };
         })
       );
@@ -149,17 +284,6 @@ function HopeVaultTapes({ session }) {
 
   return (
     <div className="rounded-3xl p-6 backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
-      <style>{`
-        @keyframes scEqBounce { 0%, 100% { height: 20%; } 50% { height: 90%; } }
-        .sc-eq span { width: 3px; background: var(--accent); opacity: 0.3; border-radius: 1px; height: 20%; display: block; transition: opacity 0.3s ease; }
-        .sc-eq.active span { opacity: 0.9; animation: scEqBounce 0.9s ease-in-out infinite; }
-        .sc-eq.active span:nth-child(1) { animation-delay: 0s; }
-        .sc-eq.active span:nth-child(2) { animation-delay: 0.12s; }
-        .sc-eq.active span:nth-child(3) { animation-delay: 0.24s; }
-        .sc-eq.active span:nth-child(4) { animation-delay: 0.08s; }
-        .sc-eq.active span:nth-child(5) { animation-delay: 0.2s; }
-      `}</style>
-
       <div className="text-[11px] font-semibold tracking-[1.4px] uppercase mb-1" style={{ color: 'var(--accent-deep)' }}>
         Hope Vault Tapes
       </div>
@@ -202,26 +326,15 @@ function HopeVaultTapes({ session }) {
                 </p>
               )}
 
-              {category === 'gossips' && active.items.length > 0 && (
+              {category === 'gossips' && gossips.length > 0 && (
                 <div className="flex flex-col gap-3">
                   {gossips.map((t) => <GossipCard key={t.id} tape={t} />)}
                 </div>
               )}
 
-              {category === 'yaps' && active.items.length > 0 && (
-                <div className="flex flex-col gap-3">
-                  {yaps.map((t) => (
-                    <YapRow
-                      key={t.id}
-                      tape={t}
-                      isPlaying={playingId === t.id}
-                      onToggle={() => setPlayingId((cur) => (cur === t.id ? null : t.id))}
-                    />
-                  ))}
-                </div>
-              )}
+              {category === 'yaps' && yaps.length > 0 && <WalkmanPlayer yaps={yaps} />}
 
-              {category === 'photos' && active.items.length > 0 && (
+              {category === 'photos' && photos.length > 0 && (
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                   {photos.map((t) => <PhotoThumb key={t.id} tape={t} onOpen={setLightboxTape} />)}
                 </div>
