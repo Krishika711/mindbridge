@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import emailjs from 'emailjs-com';
 import MoodBackground from '../components/MoodBackground';
@@ -23,349 +23,215 @@ async function sendInviteEmail(contact, inviterName) {
   );
 }
 
-// ---------- Hope Vault tape deck (walkman) ----------
-
-const TAPE_COLORS = ['#E6A93A', '#D98E4A', '#8CA283', '#7CA24A', '#D4537E', '#F0997B', '#C9A66B', '#7C93A2'];
+// ---------- Hope Vault tapes (read / listen / watch) ----------
 
 function formatDateLabel(iso) {
   const d = new Date(iso);
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
-function formatMonthLabel(iso) {
-  const d = new Date(iso);
-  return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+
+function GossipCard({ tape }) {
+  return (
+    <div className="rounded-2xl p-5" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
+      <p className="italic text-[15px] leading-relaxed mb-2" style={{ fontFamily: 'var(--font-display)', color: 'var(--text)' }}>
+        "{tape.text}"
+      </p>
+      <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{tape.date}</div>
+    </div>
+  );
 }
 
-function TapeDeck({ session }) {
+function YapRow({ tape, isPlaying, onToggle }) {
+  return (
+    <div className="rounded-2xl p-4" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <button
+            onClick={onToggle}
+            className="w-10 h-10 rounded-full flex items-center justify-center text-sm flex-shrink-0"
+            style={{ background: 'var(--ink)', color: 'var(--ink-text)' }}
+          >
+            {isPlaying ? '⏸' : '▶'}
+          </button>
+          <div className="min-w-0">
+            <div className="text-sm font-semibold truncate">{tape.voice}</div>
+            <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{tape.date}</div>
+          </div>
+        </div>
+        <div className={`sc-eq flex items-end gap-1 h-4 flex-shrink-0 ${isPlaying ? 'active' : ''}`} style={{ width: 26 }}>
+          {[0, 1, 2, 3, 4].map((i) => <span key={i} />)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PhotoThumb({ tape, onOpen }) {
+  return (
+    <button
+      onClick={() => onOpen(tape)}
+      className="bg-white p-2 pb-6 text-left"
+      style={{ transform: 'rotate(-1deg)', boxShadow: '0 10px 22px -10px rgba(0,0,0,0.3)' }}
+    >
+      <div className="w-full aspect-square bg-cover bg-center" style={{ backgroundImage: `url(${tape.photo})` }} />
+      <div className="text-center mt-2 text-sm" style={{ fontFamily: 'var(--font-hand, cursive)', color: '#4a3c22' }}>{tape.date}</div>
+    </button>
+  );
+}
+
+function PhotoLightbox({ tape, onClose }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-5" style={{ background: 'rgba(0,0,0,0.55)' }} onClick={onClose}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white p-3 pb-8 relative"
+        style={{ width: 'min(360px, 90vw)', boxShadow: '0 30px 70px -20px rgba(0,0,0,0.5)' }}
+      >
+        <button onClick={onClose} className="absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center text-sm" style={{ background: 'rgba(0,0,0,0.06)', color: '#4a3c22' }}>✕</button>
+        <img src={tape.photo} alt="" className="w-full aspect-square object-cover" />
+        <div className="text-center mt-3 text-lg" style={{ fontFamily: 'var(--font-hand, cursive)', color: '#4a3c22' }}>{tape.date}</div>
+      </div>
+    </div>
+  );
+}
+
+function HopeVaultTapes({ session }) {
   const [tapes, setTapes] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activeTape, setActiveTape] = useState(null);
-  const [playing, setPlaying] = useState(false);
-  const [rewinding, setRewinding] = useState(false);
-  const [deckOpen, setDeckOpen] = useState(false);
-  const [linerShow, setLinerShow] = useState(false);
-  const [flying, setFlying] = useState(null); // { left, top, transform }
-
-  const deckWindowRef = useRef(null);
-  const shuffleRef = useRef(null);
-  const rowRefs = useRef(new Map());
-  const linerTimeoutRef = useRef(null);
-  const insertTimeoutRef = useRef(null);
-  const rewindTimeoutRef = useRef(null);
-
-  const loadTapes = async () => {
-    if (!session) { setLoading(false); return; }
-    setLoading(true);
-    const { data, error } = await supabase
-      .from('hope_vault_tapes')
-      .select('id, voice_caption, text_scrap, photo_path, letter, created_at')
-      .eq('user_id', session.user.id)
-      .order('created_at', { ascending: false });
-    setLoading(false);
-    if (error) { console.error('vault tapes load failed:', error.message); return; }
-
-    const resolved = await Promise.all(
-      (data || []).map(async (t, i) => {
-        let photoUrl = null;
-        if (t.photo_path) {
-          const { data: signed, error: signErr } = await supabase.storage.from('media').createSignedUrl(t.photo_path, 3600);
-          if (signErr) console.error('vault photo signed url failed:', signErr.message);
-          else photoUrl = signed.signedUrl;
-        }
-        const title =
-          t.voice_caption ||
-          (t.text_scrap ? (t.text_scrap.length > 22 ? t.text_scrap.slice(0, 22) + '…' : t.text_scrap) : null) ||
-          (photoUrl ? 'A photo you loved' : null) ||
-          (t.letter ? 'Sealed letter' : 'Untitled tape');
-        return {
-          id: t.id,
-          title,
-          voice: t.voice_caption,
-          text: t.text_scrap,
-          photo: photoUrl,
-          letter: t.letter,
-          date: formatDateLabel(t.created_at),
-          month: formatMonthLabel(t.created_at),
-          color: TAPE_COLORS[i % TAPE_COLORS.length],
-        };
-      })
-    );
-    setTapes(resolved);
-  };
+  const [category, setCategory] = useState('gossips');
+  const [playingId, setPlayingId] = useState(null);
+  const [lightboxTape, setLightboxTape] = useState(null);
 
   useEffect(() => {
-    loadTapes();
-    return () => {
-      clearTimeout(linerTimeoutRef.current);
-      clearTimeout(insertTimeoutRef.current);
-      clearTimeout(rewindTimeoutRef.current);
+    const loadTapes = async () => {
+      if (!session) { setLoading(false); return; }
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('hope_vault_tapes')
+        .select('id, voice_caption, text_scrap, photo_path, created_at')
+        .eq('user_id', session.user.id)
+        .order('created_at', { ascending: false });
+      setLoading(false);
+      if (error) { console.error('vault tapes load failed:', error.message); return; }
+
+      const resolved = await Promise.all(
+        (data || []).map(async (t) => {
+          let photoUrl = null;
+          if (t.photo_path) {
+            const { data: signed, error: signErr } = await supabase.storage.from('media').createSignedUrl(t.photo_path, 3600);
+            if (signErr) console.error('vault photo signed url failed:', signErr.message);
+            else photoUrl = signed.signedUrl;
+          }
+          return {
+            id: t.id,
+            voice: t.voice_caption,
+            text: t.text_scrap,
+            photo: photoUrl,
+            date: formatDateLabel(t.created_at),
+          };
+        })
+      );
+      setTapes(resolved);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    loadTapes();
   }, [session]);
 
-  const months = [...new Set(tapes.map((t) => t.month))];
+  const gossips = tapes.filter((t) => t.text);
+  const yaps = tapes.filter((t) => t.voice);
+  const photos = tapes.filter((t) => t.photo);
 
-  const stopPlayback = (reset) => {
-    setPlaying(false);
-    if (reset) {
-      setActiveTape(null);
-      setLinerShow(false);
-      clearTimeout(linerTimeoutRef.current);
-    }
-  };
-
-  const insertTape = (tape, sourceEl) => {
-    if (!tape || !deckWindowRef.current) return;
-    stopPlayback(false);
-    setLinerShow(false);
-    clearTimeout(linerTimeoutRef.current);
-    clearTimeout(insertTimeoutRef.current);
-
-    const startEl = sourceEl || shuffleRef.current;
-    const startRect = startEl ? startEl.getBoundingClientRect() : deckWindowRef.current.getBoundingClientRect();
-    const endRect = deckWindowRef.current.getBoundingClientRect();
-
-    setDeckOpen(true);
-    setFlying({
-      left: startRect.left,
-      top: startRect.top,
-      transform: 'scale(1) rotate(0deg)',
-    });
-
-    // let it paint at the start position first, then animate to the deck
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        setFlying({
-          left: endRect.left + endRect.width / 2 - 15,
-          top: endRect.top + endRect.height / 2 - 10,
-          transform: 'scale(1.6) rotate(2deg)',
-        });
-      });
-    });
-
-    insertTimeoutRef.current = setTimeout(() => {
-      setFlying(null);
-      setDeckOpen(false);
-      setActiveTape(tape);
-    }, 560);
-  };
-
-  const handleShuffle = () => {
-    if (!tapes.length) return;
-    const pick = tapes[Math.floor(Math.random() * tapes.length)];
-    insertTape(pick, rowRefs.current.get(pick.id));
-  };
-
-  const handlePlay = () => {
-    if (!activeTape) return;
-    setPlaying(true);
-    linerTimeoutRef.current = setTimeout(() => setLinerShow(true), 500);
-  };
-  const handlePause = () => setPlaying(false);
-  const handleStop = () => stopPlayback(true);
-  const handleRewind = () => {
-    if (!activeTape) return;
-    setRewinding(true);
-    rewindTimeoutRef.current = setTimeout(() => setRewinding(false), 900);
-  };
+  const CATEGORIES = [
+    { key: 'gossips', label: 'Gossips', icon: '📝', items: gossips, hint: 'Text scraps you can read.' },
+    { key: 'yaps', label: 'Yaps', icon: '🎙️', items: yaps, hint: 'Voice notes you can listen to.' },
+    { key: 'photos', label: 'Photos', icon: '📷', items: photos, hint: 'Snapshots you can watch back.' },
+  ];
+  const active = CATEGORIES.find((c) => c.key === category) || CATEGORIES[0];
 
   return (
     <div className="rounded-3xl p-6 backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
       <style>{`
-        @keyframes scReelSpin { to { transform: rotate(360deg); } }
-        @keyframes scReelSpinRev { to { transform: rotate(-360deg); } }
         @keyframes scEqBounce { 0%, 100% { height: 20%; } 50% { height: 90%; } }
-        .sc-reel.spin { animation: scReelSpin 1.6s linear infinite; }
-        .sc-reel.spin.rev { animation: scReelSpinRev 0.5s linear infinite; }
-        .sc-eq span { width: 3px; background: #F0A857; opacity: 0.25; border-radius: 1px; height: 20%; display: block; transition: opacity 0.3s ease; }
+        .sc-eq span { width: 3px; background: var(--accent); opacity: 0.3; border-radius: 1px; height: 20%; display: block; transition: opacity 0.3s ease; }
         .sc-eq.active span { opacity: 0.9; animation: scEqBounce 0.9s ease-in-out infinite; }
         .sc-eq.active span:nth-child(1) { animation-delay: 0s; }
         .sc-eq.active span:nth-child(2) { animation-delay: 0.12s; }
         .sc-eq.active span:nth-child(3) { animation-delay: 0.24s; }
         .sc-eq.active span:nth-child(4) { animation-delay: 0.08s; }
         .sc-eq.active span:nth-child(5) { animation-delay: 0.2s; }
-        .sc-deck-flap { transition: transform 0.45s cubic-bezier(.3,.6,.3,1); transform-origin: top; }
-        .sc-deck-flap.open { transform: rotateX(-100deg); }
-        .sc-mini-tape:hover { background: rgba(255,255,255,0.05); }
       `}</style>
 
-      <div className="flex items-center justify-between mb-1">
-        <div className="text-[11px] font-semibold tracking-[1.4px] uppercase" style={{ color: 'var(--accent-deep)' }}>
-          Hope Vault tapes
-        </div>
-        <button
-          ref={shuffleRef}
-          onClick={handleShuffle}
-          disabled={!tapes.length}
-          className="text-[10.5px] px-2.5 py-1 rounded-full"
-          style={{ border: '1px solid var(--card-border)', color: 'var(--accent-deep)', opacity: tapes.length ? 1 : 0.4 }}
-        >
-          Shuffle
-        </button>
+      <div className="text-[11px] font-semibold tracking-[1.4px] uppercase mb-1" style={{ color: 'var(--accent-deep)' }}>
+        Hope Vault Tapes
       </div>
       <p className="text-xs mb-4" style={{ color: 'var(--text-faint)' }}>
-        Insert a tape from your Hope Vault and play it back, right here in your Safe Circle.
+        Everything you've filed in your Hope Vault, sorted so you can read, listen, and watch it back.
       </p>
 
       {!session && (
-        <p className="text-sm mb-2" style={{ color: 'var(--text-faint)' }}>
-          Sign in to load and play your Hope Vault tapes here.
-        </p>
-      )}
-      {session && loading && <p className="text-sm" style={{ color: 'var(--text-faint)' }}>Loading tapes…</p>}
-      {session && !loading && !tapes.length && (
-        <p className="text-sm mb-2" style={{ color: 'var(--text-faint)' }}>
-          No tapes filed yet — add some in Hope Vault first.
-        </p>
+        <p className="text-sm" style={{ color: 'var(--text-faint)' }}>Sign in to load your Hope Vault tapes here.</p>
       )}
 
-      <div className="flex gap-5 flex-wrap items-start justify-center">
-        {/* Walkman */}
-        <div
-          className="rounded-3xl p-5 relative flex-shrink-0"
-          style={{ width: 260, background: 'linear-gradient(150deg,#453b2c,#221d15 65%)', boxShadow: '0 30px 70px -25px rgba(0,0,0,0.55)', border: '1px solid rgba(255,210,150,0.14)' }}
-        >
-          <div className="rounded-xl mb-3 px-3.5 py-3" style={{ background: 'linear-gradient(180deg,#181209,#0f0c07)', border: '1px solid rgba(240,200,140,0.18)' }}>
-            <div className="text-[9px] tracking-[2px] uppercase mb-1" style={{ color: '#F0A857', opacity: 0.85 }}>Now playing</div>
-            <div className="text-[15px] italic mb-2" style={{ fontFamily: 'var(--font-display)', color: '#ECE8DA', minHeight: 20 }}>
-              {activeTape ? activeTape.title : 'Insert a tape'}
-            </div>
-            <div className={`sc-eq flex items-end gap-1 h-4 ${playing ? 'active' : ''}`}>
-              {[0, 1, 2, 3, 4].map((i) => <span key={i} />)}
-            </div>
-          </div>
-
-          <div ref={deckWindowRef} className="relative rounded-xl mb-3 p-3.5" style={{ background: 'linear-gradient(180deg,#0d0a06,#171009)', boxShadow: 'inset 0 4px 14px rgba(0,0,0,0.6)' }}>
-            <div
-              className={`sc-deck-flap absolute inset-0 rounded-xl flex items-center justify-center z-10 ${deckOpen ? 'open' : ''}`}
-              style={{ background: 'linear-gradient(180deg,#181209,#0f0c07)' }}
-            >
-              <div className="text-[10px] tracking-wide" style={{ color: '#767CA0' }}>insert a tape ↓</div>
-            </div>
-            <div className="rounded-lg p-3" style={{ background: 'linear-gradient(160deg,#e8ddc4,#cbbd98)' }}>
-              <div className="rounded px-2 py-1.5 mb-2.5 text-center" style={{ background: '#fbf5e5' }}>
-                <div className="text-[15px]" style={{ fontFamily: 'var(--font-hand, cursive)', color: '#4a3c22' }}>
-                  {activeTape ? activeTape.title : '— empty —'}
-                </div>
-              </div>
-              <div className="flex items-center justify-between px-2">
-                <div
-                  className={`sc-reel ${playing ? 'spin' : ''} ${rewinding ? 'rev' : ''}`}
-                  style={{ width: 40, height: 40, borderRadius: '50%', background: 'radial-gradient(circle,#2a251c 0 26%, #59503c 28% 55%, #2a251c 58% 100%)' }}
-                />
-                <div className="flex-1 mx-1.5" style={{ height: 3, background: '#2a251c', borderRadius: 2 }} />
-                <div
-                  className={`sc-reel ${playing ? 'spin' : ''} ${rewinding ? 'rev' : ''}`}
-                  style={{ width: 40, height: 40, borderRadius: '50%', background: 'radial-gradient(circle,#2a251c 0 26%, #59503c 28% 55%, #2a251c 58% 100%)' }}
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="flex gap-1.5 justify-center">
-            {[
-              { label: '⏪', onClick: handleRewind, title: 'Rewind' },
-              { label: '▶', onClick: handlePlay, title: 'Play' },
-              { label: '⏸', onClick: handlePause, title: 'Pause' },
-              { label: '⏹', onClick: handleStop, title: 'Eject / stop' },
-            ].map((b) => (
+      {session && (
+        <>
+          <div className="flex gap-2 mb-5 flex-wrap">
+            {CATEGORIES.map((c) => (
               <button
-                key={b.title}
-                onClick={b.onClick}
-                disabled={!activeTape}
-                title={b.title}
-                className="w-10 h-9 rounded-lg flex items-center justify-center text-sm"
-                style={{ background: 'linear-gradient(180deg,#332c20,#211c14)', color: '#F0A857', border: '1px solid rgba(240,200,140,0.2)', opacity: activeTape ? 1 : 0.4 }}
+                key={c.key}
+                onClick={() => setCategory(c.key)}
+                className="px-4 py-2 rounded-full text-sm font-medium flex items-center gap-1.5"
+                style={
+                  category === c.key
+                    ? { background: 'var(--ink)', color: 'var(--ink-text)' }
+                    : { border: '1px solid var(--card-border)', color: 'var(--text)' }
+                }
               >
-                {b.label}
+                <span>{c.icon}</span> {c.label} ({c.items.length})
               </button>
             ))}
           </div>
-        </div>
 
-        {/* Archive */}
-        {tapes.length > 0 && (
-          <div
-            className="rounded-2xl p-4 flex-shrink-0"
-            style={{ width: 220, maxHeight: 340, overflowY: 'auto', background: 'linear-gradient(160deg,#211c15,#171310)', border: '1px solid rgba(255,210,150,0.1)' }}
-          >
-            {months.map((month) => (
-              <div key={month} className="mb-3.5">
-                <div className="text-[13px] italic mb-1.5" style={{ fontFamily: 'var(--font-display)', color: '#AAB0C8' }}>{month}</div>
-                {tapes.filter((t) => t.month === month).map((t) => (
-                  <div
-                    key={t.id}
-                    ref={(el) => { if (el) rowRefs.current.set(t.id, el); else rowRefs.current.delete(t.id); }}
-                    onClick={(e) => insertTape(t, e.currentTarget)}
-                    className="sc-mini-tape flex items-center gap-2 p-1.5 rounded-lg cursor-pointer mb-1"
-                    style={{ background: activeTape?.id === t.id ? 'rgba(240,168,87,0.14)' : 'transparent' }}
-                  >
-                    <div className="rounded-sm flex-shrink-0 relative" style={{ width: 30, height: 20, background: 'linear-gradient(160deg,#e8ddc4,#cbbd98)' }}>
-                      <div style={{ position: 'absolute', top: 2, left: 2, right: 2, height: 4, borderRadius: 2, background: t.color }} />
-                    </div>
-                    <div className="text-[11px] leading-tight" style={{ color: '#AAB0C8' }}>
-                      <b className="block text-[12px]" style={{ color: '#ECE8DA' }}>{t.title}</b>
-                      {t.date}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ))}
-          </div>
-        )}
+          {loading && <p className="text-sm" style={{ color: 'var(--text-faint)' }}>Loading tapes…</p>}
 
-        {/* Liner notes */}
-        {activeTape && (
-          <div
-            className="rounded-sm p-6 relative flex-shrink-0"
-            style={{
-              width: 250,
-              background: '#F6EFD9',
-              color: '#3a3020',
-              boxShadow: '0 24px 60px -18px rgba(0,0,0,0.5)',
-              transition: 'all 0.7s cubic-bezier(.2,.8,.2,1)',
-              opacity: linerShow ? 1 : 0,
-              transform: linerShow ? 'translateX(0) rotate(-1.8deg)' : 'translateX(-20px) rotate(-1.8deg)',
-              pointerEvents: linerShow ? 'auto' : 'none',
-            }}
-          >
-            {activeTape.photo && (
-              <div className="bg-white p-2 pb-5 mb-4" style={{ transform: 'rotate(2deg)', boxShadow: '0 10px 22px -8px rgba(0,0,0,0.3)' }}>
-                <img src={activeTape.photo} alt="" className="w-full aspect-square object-cover" />
-              </div>
-            )}
-            {activeTape.text && (
-              <div className="text-lg leading-relaxed mb-2" style={{ fontFamily: 'var(--font-hand, cursive)' }}>"{activeTape.text}"</div>
-            )}
-            {activeTape.voice && !activeTape.text && (
-              <div className="text-lg leading-relaxed mb-2" style={{ fontFamily: 'var(--font-hand, cursive)' }}>🎙️ {activeTape.voice}</div>
-            )}
-            {activeTape.letter && (
-              <div className="text-xs mb-2" style={{ color: '#8a7a55' }}>✉️ Sealed letter — stays private until a heavy day.</div>
-            )}
-            <div className="text-[10.5px] tracking-[1.4px] uppercase mt-3" style={{ color: '#8a7a55' }}>{activeTape.date}</div>
-          </div>
-        )}
-      </div>
+          {!loading && (
+            <>
+              <p className="text-xs mb-3" style={{ color: 'var(--text-faint)' }}>{active.hint}</p>
 
-      {flying && (
-        <div
-          style={{
-            position: 'fixed',
-            zIndex: 60,
-            width: 30,
-            height: 20,
-            borderRadius: 3,
-            background: 'linear-gradient(160deg,#e8ddc4,#cbbd98)',
-            boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
-            pointerEvents: 'none',
-            transition: 'all 0.55s cubic-bezier(.3,.6,.3,1)',
-            left: flying.left,
-            top: flying.top,
-            transform: flying.transform,
-          }}
-        />
+              {active.items.length === 0 && (
+                <p className="text-sm" style={{ color: 'var(--text-faint)' }}>
+                  No {active.label.toLowerCase()} filed yet — add some in Hope Vault first.
+                </p>
+              )}
+
+              {category === 'gossips' && active.items.length > 0 && (
+                <div className="flex flex-col gap-3">
+                  {gossips.map((t) => <GossipCard key={t.id} tape={t} />)}
+                </div>
+              )}
+
+              {category === 'yaps' && active.items.length > 0 && (
+                <div className="flex flex-col gap-3">
+                  {yaps.map((t) => (
+                    <YapRow
+                      key={t.id}
+                      tape={t}
+                      isPlaying={playingId === t.id}
+                      onToggle={() => setPlayingId((cur) => (cur === t.id ? null : t.id))}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {category === 'photos' && active.items.length > 0 && (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                  {photos.map((t) => <PhotoThumb key={t.id} tape={t} onOpen={setLightboxTape} />)}
+                </div>
+              )}
+            </>
+          )}
+        </>
       )}
+
+      {lightboxTape && <PhotoLightbox tape={lightboxTape} onClose={() => setLightboxTape(null)} />}
     </div>
   );
 }
@@ -375,6 +241,7 @@ function TapeDeck({ session }) {
 export default function SafeCircle() {
   const navigate = useNavigate();
   const { theme, mode, session, userName } = useMood();
+  const [tab, setTab] = useState('circle'); // 'circle' | 'vault'
   const [circle, setCircle] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState('');
@@ -447,109 +314,130 @@ export default function SafeCircle() {
         <div className="w-full max-w-2xl">
           <button onClick={() => navigate(-1)} className="text-sm mb-6" style={{ color: 'var(--text-soft)' }}>← Back</button>
 
-          <div className="flex items-center gap-3 mb-2">
+          <div className="flex items-center gap-3 mb-4">
             <div className="w-11 h-11 rounded-xl flex items-center justify-center text-xl" style={{ background: 'var(--ink)', color: 'var(--ink-text)' }}>🤝🏻</div>
             <h1 className="text-3xl" style={{ fontFamily: 'var(--font-display)', fontWeight: 600 }}>Safe Circle</h1>
           </div>
-          <p className="mb-2" style={{ color: 'var(--text-soft)' }}>Your trusted support network</p>
-          <p className="mb-8 max-w-lg text-[15px] leading-relaxed" style={{ color: 'var(--text-soft)' }}>
-            Designate up to five people you trust completely. They don't need an account — they get a private
-            link to send you a small, wordless signal of support whenever you need it, no messages, no pressure.
-          </p>
 
-          <div className="rounded-3xl p-6 backdrop-blur-md mb-6" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
-            <div className="text-[11px] font-semibold tracking-[1.4px] uppercase mb-4" style={{ color: 'var(--accent-deep)' }}>
-              YOUR CIRCLE ({circle.length} OF 5)
-            </div>
-
-            {circle.length === 0 && (
-              <div className="text-sm mb-4" style={{ color: 'var(--text-faint)' }}>Nobody added yet.</div>
-            )}
-
-            <div className="flex flex-col gap-3">
-              {circle.map((p) => (
-                <div
-                  key={p.id}
-                  className="group flex items-center justify-between rounded-2xl p-4"
-                  style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-11 h-11 rounded-full flex items-center justify-center text-sm font-semibold" style={{ background: 'var(--card-border)' }}>
-                      {p.name.charAt(0).toUpperCase()}
-                    </div>
-                    <div>
-                      <div className="font-semibold text-[15px]">{p.name}</div>
-                      <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{p.role || 'Invited'}</div>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => removePerson(p.id)}
-                    className="text-xs opacity-0 group-hover:opacity-100 transition-opacity px-2"
-                    style={{ color: 'var(--text-faint)' }}
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-            </div>
-
-            {!showForm && circle.length < 5 && (
-              <button
-                onClick={() => setShowForm(true)}
-                className="mt-4 flex items-center gap-2 text-sm font-medium"
-                style={{ color: 'var(--accent-deep)' }}
-              >
-                <span className="text-lg leading-none">+</span> Add person
-              </button>
-            )}
-
-            {showForm && (
-              <div className="mt-4 rounded-2xl p-4" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
-                <input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Name (e.g. Priya)"
-                  className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none mb-2"
-                  style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', color: 'var(--text)' }}
-                />
-                <input
-                  value={role}
-                  onChange={(e) => setRole(e.target.value)}
-                  placeholder="Relationship (e.g. Best friend) — optional"
-                  className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none mb-2"
-                  style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', color: 'var(--text)' }}
-                />
-                <input
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="their@email.com"
-                  type="email"
-                  className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none mb-3"
-                  style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', color: 'var(--text)' }}
-                />
-                {error && <p className="text-xs mb-2.5" style={{ color: '#C0523A' }}>{error}</p>}
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => { setShowForm(false); setError(''); }}
-                    className="flex-1 py-2 rounded-full text-[13px] font-semibold"
-                    style={{ border: '1px solid var(--card-border)', color: 'var(--text)' }}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={addPerson}
-                    disabled={saving}
-                    className="flex-1 py-2 rounded-full text-[13px] font-semibold"
-                    style={{ background: 'var(--ink)', color: 'var(--ink-text)', opacity: saving ? 0.6 : 1 }}
-                  >
-                    {saving ? 'Sending invite…' : 'Add & send invite'}
-                  </button>
-                </div>
-              </div>
-            )}
+          <div className="flex gap-2 mb-6">
+            <button
+              onClick={() => setTab('circle')}
+              className="px-5 py-2.5 rounded-full text-sm font-semibold"
+              style={tab === 'circle' ? { background: 'var(--ink)', color: 'var(--ink-text)' } : { border: '1px solid var(--card-border)', color: 'var(--text)' }}
+            >
+              My Circle
+            </button>
+            <button
+              onClick={() => setTab('vault')}
+              className="px-5 py-2.5 rounded-full text-sm font-semibold"
+              style={tab === 'vault' ? { background: 'var(--ink)', color: 'var(--ink-text)' } : { border: '1px solid var(--card-border)', color: 'var(--text)' }}
+            >
+              Hope Vault Tapes
+            </button>
           </div>
 
-          <TapeDeck session={session} />
+          {tab === 'circle' ? (
+            <>
+              <p className="mb-8 max-w-lg text-[15px] leading-relaxed" style={{ color: 'var(--text-soft)' }}>
+                Designate up to five people you trust completely. They don't need an account — they get a private
+                link to send you a small, wordless signal of support whenever you need it, no messages, no pressure.
+              </p>
+
+              <div className="rounded-3xl p-6 backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
+                <div className="text-[11px] font-semibold tracking-[1.4px] uppercase mb-4" style={{ color: 'var(--accent-deep)' }}>
+                  YOUR CIRCLE ({circle.length} OF 5)
+                </div>
+
+                {circle.length === 0 && (
+                  <div className="text-sm mb-4" style={{ color: 'var(--text-faint)' }}>Nobody added yet.</div>
+                )}
+
+                <div className="flex flex-col gap-3">
+                  {circle.map((p) => (
+                    <div
+                      key={p.id}
+                      className="group flex items-center justify-between rounded-2xl p-4"
+                      style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-11 h-11 rounded-full flex items-center justify-center text-sm font-semibold" style={{ background: 'var(--card-border)' }}>
+                          {p.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <div className="font-semibold text-[15px]">{p.name}</div>
+                          <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{p.role || 'Invited'}</div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => removePerson(p.id)}
+                        className="text-xs opacity-0 group-hover:opacity-100 transition-opacity px-2"
+                        style={{ color: 'var(--text-faint)' }}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                {!showForm && circle.length < 5 && (
+                  <button
+                    onClick={() => setShowForm(true)}
+                    className="mt-4 flex items-center gap-2 text-sm font-medium"
+                    style={{ color: 'var(--accent-deep)' }}
+                  >
+                    <span className="text-lg leading-none">+</span> Add person
+                  </button>
+                )}
+
+                {showForm && (
+                  <div className="mt-4 rounded-2xl p-4" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
+                    <input
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="Name (e.g. Priya)"
+                      className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none mb-2"
+                      style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', color: 'var(--text)' }}
+                    />
+                    <input
+                      value={role}
+                      onChange={(e) => setRole(e.target.value)}
+                      placeholder="Relationship (e.g. Best friend) — optional"
+                      className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none mb-2"
+                      style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', color: 'var(--text)' }}
+                    />
+                    <input
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="their@email.com"
+                      type="email"
+                      className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none mb-3"
+                      style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', color: 'var(--text)' }}
+                    />
+                    {error && <p className="text-xs mb-2.5" style={{ color: '#C0523A' }}>{error}</p>}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => { setShowForm(false); setError(''); }}
+                        className="flex-1 py-2 rounded-full text-[13px] font-semibold"
+                        style={{ border: '1px solid var(--card-border)', color: 'var(--text)' }}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={addPerson}
+                        disabled={saving}
+                        className="flex-1 py-2 rounded-full text-[13px] font-semibold"
+                        style={{ background: 'var(--ink)', color: 'var(--ink-text)', opacity: saving ? 0.6 : 1 }}
+                      >
+                        {saving ? 'Sending invite…' : 'Add & send invite'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <HopeVaultTapes session={session} />
+          )}
         </div>
       </main>
 
