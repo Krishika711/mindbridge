@@ -53,6 +53,18 @@ async function claudeRespondToImage(imageDataUrl, signal) {
   return data.text;
 }
 
+async function claudeRespondToVoice(audioDataUrl, signal) {
+  const res = await fetch('/api/chat-voice', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ audioDataUrl }),
+    signal,
+  });
+  if (!res.ok) throw new Error(`chat-voice failed ${res.status}`);
+  const data = await res.json();
+  return data.text;
+}
+
 async function sendEmergencyAlert(contactName, contactEmail, userName, triggerMessage, riskLevel) {
   emailjs.init(import.meta.env.VITE_EMAILJS_PUBLIC_KEY);
   return emailjs.send(
@@ -108,7 +120,7 @@ function PhotoRow({ small = false, photos, onAdd, onRemove }) {
         </div>
       ))}
       <input id={inputId} type="file" accept="image/*" multiple onChange={handleFiles} className="hidden" />
-      <label htmlFor={inputId} className={`${size} rounded-xl flex items-center justify-center cursor-pointer text-xl shrink-0`}
+      <label htmlFor={inputId} className={`${size} rounded-xl flex items-center justify-center cursor-pointer text-xl flex-shrink-0`}
         style={{ border: '1.5px dashed var(--card-border)', color: 'var(--accent-deep)' }}>+</label>
     </div>
   );
@@ -126,12 +138,75 @@ function GuestLockedPane({ label, onUnlock }) {
 
 // ---------- Quiet Mode History (Written / Drawings / Voice / Photos) ----------
 
-function JournalWrittenCard({ entry }) {
+function JournalWrittenCard({ entry, onUpdate }) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(entry.text_content || '');
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    if (!text.trim()) return;
+    setSaving(true);
+    await onUpdate(entry.id, text.trim());
+    setSaving(false);
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <div className="rounded-2xl p-5" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
+        <textarea
+          autoFocus
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          className="w-full min-h-[90px] resize-none outline-none text-[15px] leading-relaxed bg-transparent mb-3"
+          style={{ fontFamily: 'var(--font-display)', color: 'var(--text)' }}
+        />
+        <div className="flex gap-2">
+          <button onClick={() => { setText(entry.text_content || ''); setEditing(false); }} className="text-xs font-semibold px-3 py-1.5 rounded-full" style={{ border: '1px solid var(--card-border)', color: 'var(--text)' }}>Cancel</button>
+          <button onClick={save} disabled={saving} className="text-xs font-semibold px-3 py-1.5 rounded-full" style={{ background: 'var(--ink)', color: 'var(--ink-text)', opacity: saving ? 0.6 : 1 }}>
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="rounded-2xl p-5" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
+    <button onClick={() => setEditing(true)} className="text-left rounded-2xl p-5 w-full" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
       <p className="italic text-[15px] leading-relaxed mb-2" style={{ fontFamily: 'var(--font-display)', color: 'var(--text)' }}>
         "{entry.text_content}"
       </p>
+      <div className="flex items-center justify-between">
+        <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{entry.date}</div>
+        <div className="text-xs" style={{ color: 'var(--accent-deep)' }}>✎ Edit</div>
+      </div>
+    </button>
+  );
+}
+
+function VoiceRow({ entry, onUpdate }) {
+  const [title, setTitle] = useState(entry.text_content || '');
+
+  const commit = () => {
+    if (title.trim() !== (entry.text_content || '')) onUpdate(entry.id, title.trim());
+  };
+
+  return (
+    <div className="rounded-2xl p-4 flex flex-col gap-2" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
+      <input
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+        placeholder="Untitled voice note"
+        className="text-sm font-semibold bg-transparent outline-none border-none"
+        style={{ color: 'var(--text)' }}
+      />
+      {entry.mediaUrl ? (
+        <audio controls src={entry.mediaUrl} className="w-full h-9" />
+      ) : (
+        <div className="text-xs" style={{ color: 'var(--text-faint)' }}>Audio unavailable.</div>
+      )}
       <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{entry.date}</div>
     </div>
   );
@@ -147,35 +222,59 @@ function JournalMediaThumb({ entry, onOpen, icon }) {
       <div className="w-full aspect-square bg-cover bg-center flex items-center justify-center" style={{ backgroundImage: entry.mediaUrl ? `url(${entry.mediaUrl})` : 'none', background: entry.mediaUrl ? undefined : '#eee' }}>
         {!entry.mediaUrl && <span className="text-2xl">{icon}</span>}
       </div>
-      <div className="text-center mt-2 text-sm" style={{ fontFamily: 'var(--font-hand, cursive)', color: '#4a3c22' }}>{entry.date}</div>
+      {entry.text_content && (
+        <div className="text-center mt-1.5 text-[13px] font-semibold truncate px-1" style={{ color: '#4a3c22' }}>{entry.text_content}</div>
+      )}
+      <div className="text-center mt-1 text-sm" style={{ fontFamily: 'var(--font-hand, cursive)', color: '#4a3c22' }}>{entry.date}</div>
     </button>
   );
 }
 
-function JournalLightbox({ entry, onClose }) {
+function JournalLightbox({ entry, onClose, onUpdate }) {
+  const [title, setTitle] = useState(entry.text_content || '');
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    await onUpdate(entry.id, title.trim());
+    setSaving(false);
+  };
+
   return (
-    <div className="fixed inset-0 z-'60' flex items-center justify-center p-5" style={{ background: 'rgba(0,0,0,0.55)' }} onClick={onClose}>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-5" style={{ background: 'rgba(0,0,0,0.55)' }} onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
-        className="bg-white p-3 pb-8 relative"
+        className="bg-white p-3 pb-6 relative"
         style={{ width: 'min(360px, 90vw)', boxShadow: '0 30px 70px -20px rgba(0,0,0,0.5)' }}
       >
         <button onClick={onClose} className="absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center text-sm" style={{ background: 'rgba(0,0,0,0.06)', color: '#4a3c22' }}>✕</button>
         {entry.mediaUrl && <img src={entry.mediaUrl} alt="" className="w-full aspect-square object-cover" />}
-        <div className="text-center mt-3 text-lg" style={{ fontFamily: 'var(--font-hand, cursive)', color: '#4a3c22' }}>{entry.date}</div>
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Give this a name…"
+          className="w-full text-center mt-3 text-lg outline-none border-b bg-transparent"
+          style={{ fontFamily: 'var(--font-hand, cursive)', color: '#4a3c22', borderColor: 'rgba(0,0,0,0.15)' }}
+        />
+        <div className="flex items-center justify-between mt-3">
+          <div className="text-xs" style={{ color: '#8a7a55' }}>{entry.date}</div>
+          <button onClick={save} disabled={saving} className="text-xs font-semibold px-3 py-1.5 rounded-full" style={{ background: '#3a3020', color: '#F6EFD9', opacity: saving ? 0.6 : 1 }}>
+            {saving ? 'Saving…' : 'Save name'}
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
 const HISTORY_CATEGORIES = [
-  { key: 'text', label: 'Written', icon: '✍️', hint: 'Journal entries you can read.' },
-  { key: 'drawing', label: 'Drawings', icon: '🎨', hint: 'Sketches you can look back at.' },
-  { key: 'voice', label: 'Voice Notes', icon: '🎙️', hint: 'Recordings you can listen to.' },
-  { key: 'photo', label: 'Photos', icon: '📷', hint: 'Snapshots you can watch back.' },
+  { key: 'text', label: 'Written', icon: '✍️', hint: 'Journal entries you can read — tap one to edit.' },
+  { key: 'drawing', label: 'Drawings', icon: '🎨', hint: "Sketches from other days — today's stay in the Draw tab." },
+  { key: 'voice', label: 'Voice Notes', icon: '🎙️', hint: 'Recordings you can listen to — edit the name anytime.' },
+  { key: 'photo', label: 'Photos', icon: '📷', hint: 'Snapshots you can watch back — edit the name anytime.' },
 ];
 
-function HistoryOverlay({ entries, loading, onClose }) {
+function HistoryOverlay({ entries, loading, onClose, onUpdate }) {
   const [category, setCategory] = useState('text');
   const [lightboxEntry, setLightboxEntry] = useState(null);
 
@@ -222,23 +321,13 @@ function HistoryOverlay({ entries, loading, onClose }) {
 
             {category === 'text' && active.items.length > 0 && (
               <div className="flex flex-col gap-3">
-                {active.items.map((e) => <JournalWrittenCard key={e.id} entry={e} />)}
+                {active.items.map((e) => <JournalWrittenCard key={e.id} entry={e} onUpdate={onUpdate} />)}
               </div>
             )}
 
             {category === 'voice' && active.items.length > 0 && (
               <div className="flex flex-col gap-3">
-                {active.items.map((e) => (
-                  <div key={e.id} className="rounded-2xl p-4 flex flex-col gap-2" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
-                    <div className="text-sm font-semibold">{e.text_content || 'Voice note'}</div>
-                    {e.mediaUrl ? (
-                      <audio controls src={e.mediaUrl} className="w-full h-9" />
-                    ) : (
-                      <div className="text-xs" style={{ color: 'var(--text-faint)' }}>Audio unavailable.</div>
-                    )}
-                    <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{e.date}</div>
-                  </div>
-                ))}
+                {active.items.map((e) => <VoiceRow key={e.id} entry={e} onUpdate={onUpdate} />)}
               </div>
             )}
 
@@ -252,7 +341,13 @@ function HistoryOverlay({ entries, loading, onClose }) {
           </>
         )}
 
-        {lightboxEntry && <JournalLightbox entry={lightboxEntry} onClose={() => setLightboxEntry(null)} />}
+        {lightboxEntry && (
+          <JournalLightbox
+            entry={lightboxEntry}
+            onClose={() => setLightboxEntry(null)}
+            onUpdate={async (id, title) => { await onUpdate(id, title); setLightboxEntry((cur) => (cur ? { ...cur, text_content: title } : cur)); }}
+          />
+        )}
       </div>
     </div>
   );
@@ -287,13 +382,22 @@ export default function MySpace() {
 
   const toggleTool = (key) => setOpenTool((cur) => (cur === key ? null : key));
 
-  // Resolves any image_url paths in a batch of loaded messages into signed URLs for display.
+  // Resolves any image_url / audio_url paths in a batch of loaded messages into signed URLs for display.
   const resolveImages = async (rows) => {
     return Promise.all(rows.map(async (m) => {
-      if (!m.image_url) return { ...m, image: null };
-      const { data: signed, error } = await supabase.storage.from('media').createSignedUrl(m.image_url, 3600);
-      if (error) { console.error('image signed url failed:', error.message); return { ...m, image: null }; }
-      return { ...m, image: signed.signedUrl };
+      let image = null;
+      let audio = null;
+      if (m.image_url) {
+        const { data: signed, error } = await supabase.storage.from('media').createSignedUrl(m.image_url, 3600);
+        if (error) console.error('image signed url failed:', error.message);
+        else image = signed.signedUrl;
+      }
+      if (m.audio_url) {
+        const { data: signed, error } = await supabase.storage.from('media').createSignedUrl(m.audio_url, 3600);
+        if (error) console.error('audio signed url failed:', error.message);
+        else audio = signed.signedUrl;
+      }
+      return { ...m, image, audio };
     }));
   };
 
@@ -330,7 +434,7 @@ export default function MySpace() {
     if (controllerRef.current) controllerRef.current.abort();
     const { data, error } = await supabase
       .from('messages')
-      .select('id, from_role, text, image_url, created_at')
+      .select('id, from_role, text, image_url, audio_url, created_at')
       .eq('user_id', session.user.id)
       .eq('session_id', sessionId)
       .order('created_at', { ascending: true });
@@ -338,7 +442,7 @@ export default function MySpace() {
     setActiveSessionId(sessionId);
     setEditingIndex(null);
     const resolved = await resolveImages(data || []);
-    setThread(resolved.map((m) => ({ id: m.id, from: m.from_role === 'user' ? 'user' : 'wisp', text: m.text, image: m.image, created_at: m.created_at })));
+    setThread(resolved.map((m) => ({ id: m.id, from: m.from_role === 'user' ? 'user' : 'wisp', text: m.text, image: m.image, audio: m.audio, created_at: m.created_at })));
   };
 
   const startNewChat = () => {
@@ -399,6 +503,13 @@ export default function MySpace() {
     loadJournalEntries();
   };
 
+  const updateJournalEntry = async (id, textContent) => {
+    if (!session) return;
+    const { error } = await supabase.from('journal_entries').update({ text_content: textContent }).eq('id', id);
+    if (error) { console.error('journal entry update failed:', error.message); return; }
+    setJournalEntries((entries) => entries.map((e) => (e.id === id ? { ...e, text_content: textContent } : e)));
+  };
+
   const saveWrittenEntry = () => {
     const text = journal.trim();
     if (!text) return;
@@ -426,17 +537,53 @@ export default function MySpace() {
   useEffect(() => { threadEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [thread]);
   useEffect(() => { if (stormyStreak >= 3) setShowStormy(true); }, [stormyStreak]);
 
-  // Returns { id, created_at } — imagePath optional, for drawing-share messages.
-  const saveMessage = async (fromRole, text, imagePath = null) => {
+  // Returns { id, created_at } — imagePath/audioPath optional, for drawing-share and voice-share messages.
+  const saveMessage = async (fromRole, text, imagePath = null, audioPath = null) => {
     if (!session) return null;
     const { data, error } = await supabase
       .from('messages')
-      .insert({ user_id: session.user.id, session_id: activeSessionId, from_role: fromRole, text, image_url: imagePath })
+      .insert({ user_id: session.user.id, session_id: activeSessionId, from_role: fromRole, text, image_url: imagePath, audio_url: audioPath })
       .select('id, created_at')
       .single();
     if (error) { console.error('message save failed:', error.message); return null; }
     return data;
   };
+
+  // Called by VoiceNotes's "Send to Chat" — dataUrl is a full base64 audio data URL.
+  const sendVoiceToChat = async (dataUrl, title) => {
+    if (editingIndex !== null) return;
+    setOpenTool(null);
+    const optimisticUser = { from: 'user', text: title || null, image: null, audio: dataUrl, id: null, created_at: null };
+    setThread((t) => [...t, optimisticUser]);
+    setThinking(true);
+
+    let audioPath = null;
+    if (session) {
+      const blob = await (await fetch(dataUrl)).blob();
+      const ext = blob.type.includes('mp4') ? 'm4a' : blob.type.includes('ogg') ? 'ogg' : 'webm';
+      audioPath = `${session.user.id}/chat-voice-${Date.now()}.${ext}`;
+      const { error: uploadErr } = await supabase.storage.from('media').upload(audioPath, blob, { contentType: blob.type || 'audio/webm' });
+      if (uploadErr) { console.error('chat voice upload failed:', uploadErr.message); audioPath = null; }
+    }
+
+    const savedUser = await saveMessage('user', title || null, null, audioPath);
+    if (savedUser) setThread((t) => t.map((m) => (m === optimisticUser ? { ...m, ...savedUser } : m)));
+
+    const controller = new AbortController();
+    controllerRef.current = controller;
+    try {
+      const reply = await claudeRespondToVoice(dataUrl, controller.signal);
+      const savedAi = await saveMessage('ai', reply);
+      setThread((t) => [...t, { from: 'wisp', text: reply, image: null, audio: null, id: savedAi?.id ?? null, created_at: savedAi?.created_at ?? null }]);
+      loadSessions();
+    } catch (err) {
+      if (err.name !== 'AbortError') setThread((t) => [...t, { from: 'wisp', text: "I'm having trouble listening to that right now — try again in a moment?", image: null, audio: null, id: null, created_at: null }]);
+    } finally {
+      setThinking(false);
+      controllerRef.current = null;
+    }
+  };
+
 
   const runCrisisCheck = async (nextThread, triggerText, signal) => {
     const score = await claudeScore(nextThread, signal);
@@ -515,7 +662,7 @@ export default function MySpace() {
   };
 
   const startEdit = (index) => {
-    if (thread[index].from !== 'user' || thread[index].image || thinking) return; // image messages aren't text-editable
+    if (thread[index].from !== 'user' || thread[index].image || thread[index].audio || thinking) return; // image/audio messages aren't text-editable
     setEditingIndex(index);
     setEditingText(thread[index].text);
   };
@@ -559,7 +706,7 @@ export default function MySpace() {
 
   const deleteSession = async (e, sessionId) => {
     e.stopPropagation();
-    if (!window.confirm('Are you sure you want to delete this chat? It cannot be undone.')) return;
+    if (!window.confirm('Ye chat delete karni hai? Wapas nahi aayegi.')) return;
     if (sessionId === activeSessionId) startNewChat();
     setHistoryItems((h) => h.filter((x) => x.sessionId !== sessionId));
     const { error } = await supabase.from('messages').delete().eq('user_id', session.user.id).eq('session_id', sessionId);
@@ -625,8 +772,9 @@ export default function MySpace() {
                 ) : (
                   <>
                     {m.image && <img src={m.image} alt="Shared drawing" className="rounded-xl mb-1.5 max-w-55" style={{ border: '1px solid rgba(255,255,255,0.15)' }} />}
+                    {m.audio && <audio controls src={m.audio} className="mb-1.5 max-w-60 h-9" />}
                     {m.text}
-                    {m.from === 'user' && !m.image && (
+                    {m.from === 'user' && !m.image && !m.audio && (
                       <button onClick={() => startEdit(i)} className="absolute -left-6 top-3 opacity-0 group-hover:opacity-60 hover:opacity-100! text-xs"
                         style={{ color: 'var(--text-soft)' }} aria-label="Edit message" title="Edit — will regenerate the reply after this">✎</button>
                     )}
@@ -635,7 +783,7 @@ export default function MySpace() {
               </div>
             ))}
             {thinking && (
-              <div className="self-start px-4 py-3.5 rounded-2xl rounded-bl-sm text-[13.5px]" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}>thinking...</div>
+              <div className="self-start px-4 py-3.5 rounded-2xl rounded-bl-sm text-[13.5px]" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}>soch raha hoon...</div>
             )}
             <div ref={threadEndRef} />
           </div>
@@ -669,7 +817,7 @@ export default function MySpace() {
                         isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to save your drawings" /> : <DrawCanvas onSendToChat={sendDrawingToChat} onSaved={(path) => saveJournalEntry('drawing', null, path)} />
                       )}
                       {openTool === 'voice' && (
-                        isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to record voice notes" /> : <VoiceNotes onSaved={(path) => saveJournalEntry('voice', null, path)} />
+                        isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to record voice notes" /> : <VoiceNotes onSaved={(path) => saveJournalEntry('voice', null, path)} onSendToChat={sendVoiceToChat} />
                       )}
                     </div>
                   </motion.div>
@@ -788,7 +936,7 @@ export default function MySpace() {
       <StormyAlert open={showStormy} onClose={() => setShowStormy(false)} />
       <GuestSignInPrompt open={showGuestGate} onClose={() => setShowGuestGate(false)} />
       {showHistory && (
-        <HistoryOverlay entries={journalEntries} loading={entriesLoading} onClose={() => setShowHistory(false)} />
+        <HistoryOverlay entries={journalEntries} loading={entriesLoading} onClose={() => setShowHistory(false)} onUpdate={updateJournalEntry} />
       )}
     </div>
   );

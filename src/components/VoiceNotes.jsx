@@ -18,12 +18,13 @@ function extFromMime(mime) {
   return 'webm';
 }
 
-export default function VoiceNotes({ onSaved } = {}) {
+export default function VoiceNotes({ onSaved, onSendToChat } = {}) {
   const { session } = useMood();
   const [notes, setNotes] = useState([]);
   const [recording, setRecording] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [sendingId, setSendingId] = useState(null);
   const mediaRecorder = useRef(null);
   const chunks = useRef([]);
   const actualMimeType = useRef('audio/webm'); // updated to whatever the browser really uses, per recording
@@ -135,6 +136,23 @@ export default function VoiceNotes({ onSaved } = {}) {
     if (rowErr) console.error('voice note record delete failed:', rowErr.message);
   };
 
+  const sendToChat = async (note) => {
+    if (!onSendToChat || !note.url || sendingId) return;
+    setSendingId(note.id);
+    try {
+      const blob = await (await fetch(note.url)).blob();
+      const reader = new FileReader();
+      reader.onload = async () => {
+        await onSendToChat(reader.result, note.title); // full base64 data URL, parent handles the rest
+        setSendingId(null);
+      };
+      reader.readAsDataURL(blob);
+    } catch (e) {
+      console.error('voice send to chat failed:', e);
+      setSendingId(null);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full">
       <div className="flex flex-col items-center justify-center gap-3 py-6">
@@ -163,6 +181,12 @@ export default function VoiceNotes({ onSaved } = {}) {
               <audio controls src={n.url} className="flex-1 h-9" style={{ maxWidth: '100%' }} />
               <span className="text-[11px] shrink-0 whitespace-nowrap" style={{ color: 'var(--text-faint)' }}>{n.dateLabel} · {n.timeLabel}</span>
             </div>
+            {onSendToChat && (
+              <button onClick={() => sendToChat(n)} disabled={sendingId === n.id} className="self-start text-xs font-semibold px-3 py-1.5 rounded-full"
+                style={{ border: '1px solid var(--card-border)', color: 'var(--accent-deep)', opacity: sendingId === n.id ? 0.6 : 1 }}>
+                {sendingId === n.id ? 'Sending…' : 'Send to Chat'}
+              </button>
+            )}
           </div>
         ))}
         {!loading && !notes.length && <p className="text-xs text-center mt-2" style={{ color: 'var(--text-faint)' }}>No voice notes yet.</p>}
