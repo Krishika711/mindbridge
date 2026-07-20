@@ -377,6 +377,10 @@ export default function MySpace() {
   const [showHistory, setShowHistory] = useState(false);
   const [journalEntries, setJournalEntries] = useState([]);
   const [entriesLoading, setEntriesLoading] = useState(true);
+  const [allSessions, setAllSessions] = useState([]);
+  const [showChatHistory, setShowChatHistory] = useState(false);
+  const [openEntryId, setOpenEntryId] = useState(null);
+  const [entryTitle, setEntryTitle] = useState('');
   const threadEndRef = useRef(null);
   const controllerRef = useRef(null);
 
@@ -403,12 +407,20 @@ export default function MySpace() {
 
   const loadSessions = useCallback(async () => {
     if (!session) return;
-    const { data, error } = await supabase
-      .from('messages')
-      .select('session_id, from_role, text, created_at')
-      .eq('user_id', session.user.id)
-      .order('created_at', { ascending: true });
+    const [{ data, error }, { data: titleRows, error: titleErr }] = await Promise.all([
+      supabase
+        .from('messages')
+        .select('session_id, from_role, text, created_at')
+        .eq('user_id', session.user.id)
+        .order('created_at', { ascending: true }),
+      supabase
+        .from('chat_session_titles')
+        .select('session_id, title')
+        .eq('user_id', session.user.id),
+    ]);
     if (error) { console.error('sessions load failed:', error.message); return; }
+    if (titleErr) console.error('session titles load failed:', titleErr.message);
+    const titleMap = new Map((titleRows || []).map((r) => [r.session_id, r.title]));
 
     const bySession = new Map();
     (data || []).forEach((m) => {
@@ -421,13 +433,25 @@ export default function MySpace() {
 
     const items = Array.from(bySession.entries())
       .sort((a, b) => new Date(b[1].last.created_at) - new Date(a[1].last.created_at))
-      .slice(0, 3)
       .map(([sessionId, entry]) => {
         const snippetSrc = entry.firstUser?.text || entry.last.text || '[shared a drawing]';
-        return { sessionId, date: formatDateLabel(entry.last.created_at), snippet: snippetSrc.length > 60 ? snippetSrc.slice(0, 60) + '…' : snippetSrc };
+        const snippet = snippetSrc.length > 60 ? snippetSrc.slice(0, 60) + '…' : snippetSrc;
+        return { sessionId, date: formatDateLabel(entry.last.created_at), snippet, title: titleMap.get(sessionId) || null };
       });
-    setHistoryItems(items);
+    setAllSessions(items);
+    setHistoryItems(items.slice(0, 3));
   }, [session]);
+
+  const renameSession = async (sessionId, title) => {
+    if (!session) return;
+    const trimmed = title.trim();
+    const { error } = await supabase
+      .from('chat_session_titles')
+      .upsert({ session_id: sessionId, user_id: session.user.id, title: trimmed || null, updated_at: new Date().toISOString() }, { onConflict: 'session_id' });
+    if (error) { console.error('session rename failed:', error.message); return; }
+    setAllSessions((s) => s.map((x) => (x.sessionId === sessionId ? { ...x, title: trimmed || null } : x)));
+    setHistoryItems((s) => s.map((x) => (x.sessionId === sessionId ? { ...x, title: trimmed || null } : x)));
+  };
 
   const loadSession = async (sessionId) => {
     if (!session) return;
