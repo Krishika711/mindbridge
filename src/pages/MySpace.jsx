@@ -783,7 +783,7 @@ export default function MySpace() {
               </div>
             ))}
             {thinking && (
-              <div className="self-start px-4 py-3.5 rounded-2xl rounded-bl-sm text-[13.5px]" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}>soch raha hoon...</div>
+              <div className="self-start px-4 py-3.5 rounded-2xl rounded-bl-sm text-[13.5px]" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}>thinking..</div>
             )}
             <div ref={threadEndRef} />
           </div>
