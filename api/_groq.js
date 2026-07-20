@@ -41,6 +41,10 @@ export async function callGroqVision(textPrompt, imageDataUrl, maxTokens) {
     body: JSON.stringify({
       model: VISION_MODEL,
       max_tokens: maxTokens,
+      // qwen3.6-27b is a reasoning model — without this it prints its raw
+      // <think>...</think> chain-of-thought as the visible reply content.
+      // We just want a short in-character reaction, not chain-of-thought.
+      reasoning_effort: "none",
       messages: [
         {
           role: "user",
