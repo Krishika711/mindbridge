@@ -559,7 +559,7 @@ export default function MySpace() {
 
   const deleteSession = async (e, sessionId) => {
     e.stopPropagation();
-    if (!window.confirm('Ye chat delete karni hai? Wapas nahi aayegi.')) return;
+    if (!window.confirm('Are you sure you want to delete this chat? It cannot be undone.')) return;
     if (sessionId === activeSessionId) startNewChat();
     setHistoryItems((h) => h.filter((x) => x.sessionId !== sessionId));
     const { error } = await supabase.from('messages').delete().eq('user_id', session.user.id).eq('session_id', sessionId);
@@ -635,7 +635,7 @@ export default function MySpace() {
               </div>
             ))}
             {thinking && (
-              <div className="self-start px-4 py-3.5 rounded-2xl rounded-bl-sm text-[13.5px]" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}>soch raha hoon...</div>
+              <div className="self-start px-4 py-3.5 rounded-2xl rounded-bl-sm text-[13.5px]" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}>thinking...</div>
             )}
             <div ref={threadEndRef} />
           </div>

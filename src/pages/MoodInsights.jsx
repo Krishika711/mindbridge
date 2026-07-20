@@ -153,7 +153,7 @@ export default function MoodInsights() {
                 {pastWeeks.map((w) => (
                   <div key={w.key} className="flex items-center gap-3.5 rounded-2xl p-3.5" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
                     <div
-                      className="w-7 h-7 rounded-full flex-shrink-0"
+                      className="w-7 h-7 rounded-full shrink-0"
                       style={{ background: w.mood ? `linear-gradient(135deg, ${MOOD_COLOR[w.mood]}, ${MOOD_COLOR[w.mood]}aa)` : 'var(--card-border)' }}
                     />
                     <div>
