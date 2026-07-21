@@ -12,6 +12,14 @@ const MOOD_COLOR = {
 const MOOD_Y = { joyful: 18, neutral: 45, anxious: 55, sad: 82, numb: 65 };
 const MOOD_LABEL = { joyful: 'Bright & Energized', neutral: 'Calm & Balanced', anxious: 'Quiet & Reflective', sad: 'Heavy & Overwhelmed', numb: 'Burnt Out & Unclear' };
 
+const NAV_ITEMS = [
+  { key: 'profile', label: 'Profile', icon: '🙂' },
+  { key: 'account', label: 'Account Settings', icon: '🔒' },
+  { key: 'history', label: 'Chat History', icon: '💬' },
+  { key: 'mood', label: 'Mood Insights', icon: '📊' },
+  { key: 'contact', label: 'Emergency Contact', icon: '🚨' },
+];
+
 function dominantMood(moods) {
   if (!moods.length) return null;
   const counts = {};
@@ -112,24 +120,80 @@ function HeartbeatSpectrum({ moodHistory }) {
   );
 }
 
+function ChatHistoryRow({ item, onDelete, onRename }) {
+  const [editing, setEditing] = useState(false);
+  const [title, setTitle] = useState(item.title || '');
+
+  const commit = () => {
+    setEditing(false);
+    const trimmed = title.trim();
+    if (trimmed !== (item.title || '')) onRename(item.sessionId, trimmed);
+  };
+
+  return (
+    <div className="group flex items-center justify-between gap-3 rounded-2xl p-3.5" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
+      <div className="min-w-0 flex-1">
+        <div className="text-xs mb-0.5" style={{ color: 'var(--text-faint)' }}>{item.date} · {item.count} message{item.count === 1 ? '' : 's'}</div>
+        {editing ? (
+          <input
+            autoFocus
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+            placeholder="Name this chat…"
+            className="text-sm font-medium bg-transparent outline-none border-b w-full"
+            style={{ borderColor: 'var(--card-border)', color: 'var(--text)' }}
+          />
+        ) : (
+          <div className="text-sm font-medium truncate">{item.title || item.snippet}</div>
+        )}
+      </div>
+      <div className="flex items-center gap-2.5 shrink-0">
+        <button onClick={() => setEditing(true)} className="text-xs opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: 'var(--accent-deep)' }} title="Rename">✎</button>
+        <button
+          onClick={() => { if (window.confirm('Once deleted, this chat cannot be recovered.')) onDelete(item.sessionId); }}
+          className="text-xs opacity-0 group-hover:opacity-100 transition-opacity px-1"
+          style={{ color: '#C0523A' }}
+        >
+          Delete
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function Profile() {
   const navigate = useNavigate();
   const { theme, mode, session, userName, moodHistory, signOut } = useMood();
+  const [section, setSection] = useState('profile');
 
-  // Account editing
-  const [editingAccount, setEditingAccount] = useState(false);
-  const [nameField, setNameField] = useState('');
-  const [emailField, setEmailField] = useState('');
+  const isGoogleUser = session?.user?.app_metadata?.provider === 'google'
+    || session?.user?.identities?.some((i) => i.provider === 'google');
+
+  // Profile (nickname / age / avatar)
+  const [nicknameField, setNicknameField] = useState('');
   const [ageField, setAgeField] = useState('');
-  const [accountSaving, setAccountSaving] = useState(false);
-  const [accountMsg, setAccountMsg] = useState('');
+  const [avatarUrl, setAvatarUrl] = useState(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileMsg, setProfileMsg] = useState('');
+
+  // Account (email / password)
+  const [emailField, setEmailField] = useState('');
+  const [emailSaving, setEmailSaving] = useState(false);
+  const [emailMsg, setEmailMsg] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordMsg, setPasswordMsg] = useState('');
 
   // Emergency contact
   const [contactName, setContactName] = useState('');
   const [contactEmail, setContactEmail] = useState('');
   const [savedTick, setSavedTick] = useState(false);
 
-  // Full history
+  // Chat history
   const [sessions, setSessions] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(true);
 
@@ -138,13 +202,18 @@ export default function Profile() {
     setEmailField(session.user.email || '');
     supabase
       .from('profiles')
-      .select('full_name, age')
+      .select('full_name, age, avatar_path')
       .eq('id', session.user.id)
       .maybeSingle()
-      .then(({ data, error }) => {
+      .then(async ({ data, error }) => {
         if (error) { console.error('profile load failed:', error.message); return; }
-        setNameField(data?.full_name || userName || '');
+        setNicknameField(data?.full_name || userName || '');
         setAgeField(data?.age ?? '');
+        if (data?.avatar_path) {
+          const { data: signed, error: signErr } = await supabase.storage.from('media').createSignedUrl(data.avatar_path, 3600);
+          if (signErr) console.error('avatar signed url failed:', signErr.message);
+          else setAvatarUrl(signed.signedUrl);
+        }
       });
 
     supabase
@@ -161,13 +230,21 @@ export default function Profile() {
   const loadHistory = useCallback(async () => {
     if (!session) return;
     setHistoryLoading(true);
-    const { data, error } = await supabase
-      .from('messages')
-      .select('session_id, from_role, text, created_at')
-      .eq('user_id', session.user.id)
-      .order('created_at', { ascending: true });
+    const [{ data, error }, { data: titleRows, error: titleErr }] = await Promise.all([
+      supabase
+        .from('messages')
+        .select('session_id, from_role, text, created_at')
+        .eq('user_id', session.user.id)
+        .order('created_at', { ascending: true }),
+      supabase
+        .from('chat_session_titles')
+        .select('session_id, title')
+        .eq('user_id', session.user.id),
+    ]);
     setHistoryLoading(false);
     if (error) { console.error('history load failed:', error.message); return; }
+    if (titleErr) console.error('chat titles load failed:', titleErr.message);
+    const titleMap = new Map((titleRows || []).map((r) => [r.session_id, r.title]));
 
     const bySession = new Map();
     (data || []).forEach((m) => {
@@ -182,12 +259,13 @@ export default function Profile() {
     const items = Array.from(bySession.entries())
       .sort((a, b) => new Date(b[1].last.created_at) - new Date(a[1].last.created_at))
       .map(([sessionId, entry]) => {
-        const snippetSrc = entry.firstUser?.text || entry.last.text || '';
+        const snippetSrc = entry.firstUser?.text || entry.last.text || '[shared a drawing]';
         return {
           sessionId,
           date: formatDateLabel(entry.last.created_at),
           snippet: snippetSrc.length > 70 ? snippetSrc.slice(0, 70) + '…' : snippetSrc,
           count: entry.count,
+          title: titleMap.get(sessionId) || null,
         };
       });
     setSessions(items);
@@ -195,32 +273,94 @@ export default function Profile() {
 
   useEffect(() => { loadHistory(); }, [loadHistory]);
 
-  const saveAccount = async () => {
-    setAccountMsg('');
-    setAccountSaving(true);
+  const renameSession = async (sessionId, title) => {
+    if (!session) return;
+    const trimmed = title.trim();
+    const { error } = await supabase
+      .from('chat_session_titles')
+      .upsert({ session_id: sessionId, user_id: session.user.id, title: trimmed || null, updated_at: new Date().toISOString() }, { onConflict: 'session_id' });
+    if (error) { console.error('session rename failed:', error.message); return; }
+    setSessions((s) => s.map((x) => (x.sessionId === sessionId ? { ...x, title: trimmed || null } : x)));
+  };
+
+  const deleteSession = async (sessionId) => {
+    setSessions((s) => s.filter((x) => x.sessionId !== sessionId));
+    const { error } = await supabase.from('messages').delete().eq('user_id', session.user.id).eq('session_id', sessionId);
+    if (error) console.error('delete chat failed:', error.message);
+    const { error: titleErr } = await supabase.from('chat_session_titles').delete().eq('user_id', session.user.id).eq('session_id', sessionId);
+    if (titleErr) console.error('delete chat title failed:', titleErr.message);
+  };
+
+  const uploadAvatar = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !session) return;
+    setAvatarUploading(true);
+    const path = `${session.user.id}/avatar.png`;
+    const { error: uploadErr } = await supabase.storage.from('media').upload(path, file, { upsert: true, contentType: file.type });
+    if (uploadErr) { console.error('avatar upload failed:', uploadErr.message); setAvatarUploading(false); return; }
+    const { error: profileErr } = await supabase.from('profiles').update({ avatar_path: path }).eq('id', session.user.id);
+    if (profileErr) console.error('avatar path save failed:', profileErr.message);
+    const { data: signed, error: signErr } = await supabase.storage.from('media').createSignedUrl(path, 3600);
+    if (signErr) console.error('avatar signed url failed:', signErr.message);
+    else setAvatarUrl(signed.signedUrl);
+    setAvatarUploading(false);
+  };
+
+  const saveProfile = async () => {
+    setProfileMsg('');
+    setProfileSaving(true);
     try {
       const { error: profileErr } = await supabase.from('profiles').update({
-        full_name: nameField.trim(),
+        full_name: nicknameField.trim(),
         age: ageField === '' ? null : Number(ageField),
       }).eq('id', session.user.id);
       if (profileErr) throw profileErr;
 
-      const { error: metaErr } = await supabase.auth.updateUser({ data: { full_name: nameField.trim() } });
+      const { error: metaErr } = await supabase.auth.updateUser({ data: { full_name: nicknameField.trim() } });
       if (metaErr) throw metaErr;
 
-      if (emailField.trim() !== session.user.email) {
-        const { error: emailErr } = await supabase.auth.updateUser({ email: emailField.trim() });
-        if (emailErr) throw emailErr;
-        setAccountMsg('Naya email confirm karne ke liye link bheji gayi hai — confirm hone tak purana email hi active rahega.');
-      } else {
-        setAccountMsg('Saved ✓');
-      }
-      setEditingAccount(false);
+      setProfileMsg('Saved ✓');
     } catch (err) {
-      setAccountMsg(err.message || 'Kuch galat ho gaya.');
+      setProfileMsg(err.message || 'Kuch galat ho gaya.');
     } finally {
-      setAccountSaving(false);
-      setTimeout(() => setAccountMsg(''), 6000);
+      setProfileSaving(false);
+      setTimeout(() => setProfileMsg(''), 4000);
+    }
+  };
+
+  const saveEmail = async () => {
+    setEmailMsg('');
+    if (emailField.trim() === session.user.email) return;
+    setEmailSaving(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ email: emailField.trim() });
+      if (error) throw error;
+      setEmailMsg('Naya email confirm karne ke liye link bheji gayi hai — confirm hone tak purana email hi active rahega.');
+    } catch (err) {
+      setEmailMsg(err.message || 'Kuch galat ho gaya.');
+    } finally {
+      setEmailSaving(false);
+      setTimeout(() => setEmailMsg(''), 7000);
+    }
+  };
+
+  const changePassword = async () => {
+    setPasswordMsg('');
+    if (newPassword.length < 6) { setPasswordMsg('Password kam se kam 6 characters ka hona chahiye.'); return; }
+    if (newPassword !== confirmPassword) { setPasswordMsg('Passwords match nahi kar rahe.'); return; }
+    setPasswordSaving(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) throw error;
+      setPasswordMsg('Password updated ✓');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (err) {
+      setPasswordMsg(err.message || 'Kuch galat ho gaya.');
+    } finally {
+      setPasswordSaving(false);
+      setTimeout(() => setPasswordMsg(''), 5000);
     }
   };
 
@@ -234,104 +374,145 @@ export default function Profile() {
     setTimeout(() => setSavedTick(false), 1800);
   };
 
-  const deleteSession = async (sessionId) => {
-    setSessions((s) => s.filter((x) => x.sessionId !== sessionId));
-    const { error } = await supabase.from('messages').delete().eq('user_id', session.user.id).eq('session_id', sessionId);
-    if (error) console.error('delete chat failed:', error.message);
-  };
-
   return (
     <div className="app app-shell flex flex-col" data-theme={theme} data-mode={mode}>
       <MoodBackground showCelestial={false} />
       <Header showBack onSignOut={() => { signOut(); navigate('/'); }} />
 
       <main className="relative z-10 flex-1 flex flex-col items-center px-6 py-10">
-        <div className="w-full max-w-2xl">
+        <div className="w-full max-w-4xl">
           <button onClick={() => navigate(-1)} className="text-sm mb-6" style={{ color: 'var(--text-soft)' }}>← Back</button>
           <h1 className="text-3xl mb-8" style={{ fontFamily: 'var(--font-display)', fontWeight: 600 }}>Profile</h1>
 
-          {/* Account */}
-          <div className="rounded-3xl p-6 mb-6 backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
-            <div className="flex items-center justify-between mb-4">
-              <div className="text-[11px] font-semibold tracking-[1.4px] uppercase" style={{ color: 'var(--accent-deep)' }}>Account</div>
-              {!editingAccount && (
-                <button onClick={() => setEditingAccount(true)} className="text-xs font-semibold" style={{ color: 'var(--accent-deep)' }}>Edit</button>
-              )}
-            </div>
-
-            {!editingAccount ? (
-              <div className="flex items-center gap-4">
-                <div className="w-14 h-14 rounded-full flex items-center justify-center text-xl font-semibold" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)' }}>
-                  {(nameField || '?').charAt(0).toUpperCase()}
-                </div>
-                <div>
-                  <div className="font-semibold text-lg">{nameField || userName}</div>
-                  <div className="text-sm" style={{ color: 'var(--text-faint)' }}>{session?.user.email}</div>
-                  {ageField !== '' && <div className="text-sm" style={{ color: 'var(--text-faint)' }}>{ageField} years old</div>}
-                </div>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-2.5">
-                <input value={nameField} onChange={(e) => setNameField(e.target.value)} placeholder="Full name"
-                  className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)', color: 'var(--text)' }} />
-                <input value={emailField} onChange={(e) => setEmailField(e.target.value)} placeholder="Email" type="email"
-                  className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)', color: 'var(--text)' }} />
-                <input value={ageField} onChange={(e) => setAgeField(e.target.value)} placeholder="Age" type="number" min={13} max={120}
-                  className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)', color: 'var(--text)' }} />
-                {accountMsg && <p className="text-xs" style={{ color: 'var(--accent-deep)' }}>{accountMsg}</p>}
-                <div className="flex gap-2 mt-1">
-                  <button onClick={() => setEditingAccount(false)} className="flex-1 py-2 rounded-full text-[13px] font-semibold" style={{ border: '1px solid var(--card-border)', color: 'var(--text)' }}>Cancel</button>
-                  <button onClick={saveAccount} disabled={accountSaving} className="flex-1 py-2 rounded-full text-[13px] font-semibold" style={{ background: 'var(--ink)', color: 'var(--ink-text)', opacity: accountSaving ? 0.6 : 1 }}>
-                    {accountSaving ? 'Saving…' : 'Save changes'}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Mood Insight */}
-          <div className="rounded-3xl p-6 mb-6 backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
-            <div className="text-[11px] font-semibold tracking-[1.4px] uppercase mb-1" style={{ color: 'var(--accent-deep)' }}>Mood Insight</div>
-            <p className="text-xs mb-4" style={{ color: 'var(--text-faint)' }}>Your last 7 days, as a pulse — hover any point.</p>
-            <HeartbeatSpectrum moodHistory={moodHistory} />
-            <button onClick={() => navigate('/mood-insights')} className="mt-3 text-xs font-semibold" style={{ color: 'var(--accent-deep)' }}>View full breakdown →</button>
-          </div>
-
-          {/* Full History */}
-          <div className="rounded-3xl p-6 mb-6 backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
-            <div className="text-[11px] font-semibold tracking-[1.4px] uppercase mb-4" style={{ color: 'var(--accent-deep)' }}>All Chats</div>
-            {historyLoading && <div className="text-xs" style={{ color: 'var(--text-faint)' }}>Loading…</div>}
-            {!historyLoading && sessions.length === 0 && <div className="text-xs" style={{ color: 'var(--text-faint)' }}>No chats yet.</div>}
-            <div className="flex flex-col gap-2.5 max-h-105 overflow-y-auto pr-1">
-              {sessions.map((s) => (
-                <div key={s.sessionId} className="group flex items-center justify-between gap-3 rounded-2xl p-3.5" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-xs mb-0.5" style={{ color: 'var(--text-faint)' }}>{s.date} · {s.count} message{s.count === 1 ? '' : 's'}</div>
-                    <div className="text-sm font-medium truncate">{s.snippet}</div>
-                  </div>
-                  <button
-                    onClick={() => { if (window.confirm('Once deleted, this chat cannot be recovered.')) deleteSession(s.sessionId); }}
-                    className="text-xs opacity-0 group-hover:opacity-100 transition-opacity shrink-0 px-2"
-                    style={{ color: '#C0523A' }}
-                  >
-                    Delete
-                  </button>
-                </div>
+          <div className="flex gap-6 items-start flex-col md:flex-row">
+            {/* Left sidebar */}
+            <div className="w-full md:w-56 flex md:flex-col gap-2 shrink-0 overflow-x-auto md:overflow-visible pb-1 md:pb-0">
+              {NAV_ITEMS.map((item) => (
+                <button
+                  key={item.key}
+                  onClick={() => setSection(item.key)}
+                  className="flex items-center gap-2.5 px-4 py-3 rounded-2xl text-sm font-semibold text-left shrink-0 whitespace-nowrap"
+                  style={
+                    section === item.key
+                      ? { background: 'var(--ink)', color: 'var(--ink-text)' }
+                      : { background: 'var(--card-bg)', border: '1px solid var(--card-border)', color: 'var(--text)' }
+                  }
+                >
+                  <span>{item.icon}</span> {item.label}
+                </button>
               ))}
             </div>
-          </div>
 
-          {/* Emergency Contact */}
-          <div className="rounded-3xl p-6 backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
-            <div className="text-[11px] font-semibold tracking-[1.4px] uppercase mb-2" style={{ color: 'var(--accent-deep)' }}>Emergency Contact</div>
-            <p className="text-xs mb-4 leading-relaxed" style={{ color: 'var(--text-faint)' }}>
-              If high-risk language is detected in your chat, this person gets a real email alert.
-            </p>
-            <input value={contactName} onChange={(e) => setContactName(e.target.value)} onBlur={saveEmergencyContact} placeholder="Contact name (e.g. Maa, Rohan)"
-              className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none mb-2" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)', color: 'var(--text)' }} />
-            <input value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} onBlur={saveEmergencyContact} placeholder="their@email.com" type="email"
-              className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)', color: 'var(--text)' }} />
-            {savedTick && <div className="text-xs mt-2" style={{ color: 'var(--accent-deep)' }}>Saved ✓</div>}
+            {/* Right content */}
+            <div className="flex-1 min-w-0 w-full">
+              {section === 'profile' && (
+                <div className="rounded-3xl p-6 backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
+                  <div className="text-[11px] font-semibold tracking-[1.4px] uppercase mb-4" style={{ color: 'var(--accent-deep)' }}>Profile</div>
+
+                  <div className="flex items-center gap-4 mb-5">
+                    <div className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-semibold overflow-hidden shrink-0" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)' }}>
+                      {avatarUrl ? <img src={avatarUrl} alt="" className="w-full h-full object-cover" /> : (nicknameField || '?').charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold px-3.5 py-2 rounded-full cursor-pointer inline-block" style={{ border: '1px solid var(--card-border)', color: 'var(--accent-deep)' }}>
+                        {avatarUploading ? 'Uploading…' : 'Change photo'}
+                        <input type="file" accept="image/*" onChange={uploadAvatar} disabled={avatarUploading} className="hidden" />
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2.5 max-w-sm">
+                    <div>
+                      <div className="text-xs font-semibold mb-1" style={{ color: 'var(--text-faint)' }}>Nickname</div>
+                      <input value={nicknameField} onChange={(e) => setNicknameField(e.target.value)} placeholder="What should Wisp call you?"
+                        className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)', color: 'var(--text)' }} />
+                    </div>
+                    <div>
+                      <div className="text-xs font-semibold mb-1" style={{ color: 'var(--text-faint)' }}>Age</div>
+                      <input value={ageField} onChange={(e) => setAgeField(e.target.value)} placeholder="Age" type="number" min={13} max={120}
+                        className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)', color: 'var(--text)' }} />
+                    </div>
+                    {profileMsg && <p className="text-xs" style={{ color: 'var(--accent-deep)' }}>{profileMsg}</p>}
+                    <button onClick={saveProfile} disabled={profileSaving} className="self-start mt-1 px-5 py-2.5 rounded-full text-[13px] font-semibold" style={{ background: 'var(--ink)', color: 'var(--ink-text)', opacity: profileSaving ? 0.6 : 1 }}>
+                      {profileSaving ? 'Saving…' : 'Save changes'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {section === 'account' && (
+                <div className="rounded-3xl p-6 backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
+                  <div className="text-[11px] font-semibold tracking-[1.4px] uppercase mb-4" style={{ color: 'var(--accent-deep)' }}>Account Settings</div>
+
+                  <div className="max-w-sm flex flex-col gap-2.5 mb-6">
+                    <div className="text-xs font-semibold mb-1" style={{ color: 'var(--text-faint)' }}>Email</div>
+                    <input value={emailField} onChange={(e) => setEmailField(e.target.value)} type="email"
+                      className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)', color: 'var(--text)' }} />
+                    {emailMsg && <p className="text-xs leading-relaxed" style={{ color: 'var(--accent-deep)' }}>{emailMsg}</p>}
+                    <button onClick={saveEmail} disabled={emailSaving || emailField.trim() === session?.user.email} className="self-start px-5 py-2.5 rounded-full text-[13px] font-semibold" style={{ background: 'var(--ink)', color: 'var(--ink-text)', opacity: emailSaving ? 0.6 : 1 }}>
+                      {emailSaving ? 'Saving…' : 'Update email'}
+                    </button>
+                  </div>
+
+                  <div style={{ borderTop: '1px solid var(--card-border)' }} className="pt-5">
+                    <div className="text-xs font-semibold mb-3" style={{ color: 'var(--text-faint)' }}>Password</div>
+                    {isGoogleUser ? (
+                      <div className="flex items-center gap-2 text-sm rounded-xl px-3.5 py-3 max-w-sm" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
+                        <span>🔵</span> Signed in with Google — password is managed by your Google account.
+                      </div>
+                    ) : (
+                      <div className="max-w-sm flex flex-col gap-2.5">
+                        <input value={newPassword} onChange={(e) => setNewPassword(e.target.value)} type="password" placeholder="New password"
+                          className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)', color: 'var(--text)' }} />
+                        <input value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} type="password" placeholder="Confirm new password"
+                          className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)', color: 'var(--text)' }} />
+                        {passwordMsg && <p className="text-xs" style={{ color: 'var(--accent-deep)' }}>{passwordMsg}</p>}
+                        <button onClick={changePassword} disabled={passwordSaving} className="self-start px-5 py-2.5 rounded-full text-[13px] font-semibold" style={{ background: 'var(--ink)', color: 'var(--ink-text)', opacity: passwordSaving ? 0.6 : 1 }}>
+                          {passwordSaving ? 'Saving…' : 'Update password'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {section === 'history' && (
+                <div className="rounded-3xl p-6 backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
+                  <div className="text-[11px] font-semibold tracking-[1.4px] uppercase mb-4" style={{ color: 'var(--accent-deep)' }}>Chat History</div>
+                  {historyLoading && <div className="text-xs" style={{ color: 'var(--text-faint)' }}>Loading…</div>}
+                  {!historyLoading && sessions.length === 0 && <div className="text-xs" style={{ color: 'var(--text-faint)' }}>No chats yet.</div>}
+                  <div className="flex flex-col gap-2.5 max-h-128 overflow-y-auto pr-1">
+                    {sessions.map((s) => (
+                      <ChatHistoryRow key={s.sessionId} item={s} onDelete={deleteSession} onRename={renameSession} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {section === 'mood' && (
+                <div className="rounded-3xl p-6 backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
+                  <div className="text-[11px] font-semibold tracking-[1.4px] uppercase mb-1" style={{ color: 'var(--accent-deep)' }}>Mood Insights</div>
+                  <p className="text-xs mb-4" style={{ color: 'var(--text-faint)' }}>Your last 7 days, as a pulse — hover any point.</p>
+                  <HeartbeatSpectrum moodHistory={moodHistory} />
+                </div>
+              )}
+
+              {section === 'contact' && (
+                <div className="rounded-3xl p-6 backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
+                  <div className="text-[11px] font-semibold tracking-[1.4px] uppercase mb-2" style={{ color: 'var(--accent-deep)' }}>Emergency Contact</div>
+                  <p className="text-xs mb-4 leading-relaxed max-w-sm" style={{ color: 'var(--text-faint)' }}>
+                    If high-risk language is detected in your chat, this person gets a real email alert.
+                  </p>
+                  <div className="max-w-sm">
+                    <input value={contactName} onChange={(e) => setContactName(e.target.value)} onBlur={saveEmergencyContact} placeholder="Contact name (e.g. Maa, Rohan)"
+                      className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none mb-2" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)', color: 'var(--text)' }} />
+                    <input value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} onBlur={saveEmergencyContact} placeholder="their@email.com" type="email"
+                      className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)', color: 'var(--text)' }} />
+                    {savedTick && <div className="text-xs mt-2" style={{ color: 'var(--accent-deep)' }}>Saved ✓</div>}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </main>
