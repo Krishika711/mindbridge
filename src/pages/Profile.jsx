@@ -299,7 +299,7 @@ export default function Profile() {
     const path = `${session.user.id}/avatar.png`;
     const { error: uploadErr } = await supabase.storage.from('media').upload(path, file, { upsert: true, contentType: file.type });
     if (uploadErr) { console.error('avatar upload failed:', uploadErr.message); setAvatarUploading(false); return; }
-    const { error: profileErr } = await supabase.from('profiles').update({ avatar_path: path }).eq('id', session.user.id);
+    const { error: profileErr } = await supabase.from('profiles').upsert({ id: session.user.id, avatar_path: path }, { onConflict: 'id' });
     if (profileErr) console.error('avatar path save failed:', profileErr.message);
     const { data: signed, error: signErr } = await supabase.storage.from('media').createSignedUrl(path, 3600);
     if (signErr) console.error('avatar signed url failed:', signErr.message);
@@ -311,10 +311,11 @@ export default function Profile() {
     setProfileMsg('');
     setProfileSaving(true);
     try {
-      const { error: profileErr } = await supabase.from('profiles').update({
+      const { error: profileErr } = await supabase.from('profiles').upsert({
+        id: session.user.id,
         full_name: nicknameField.trim(),
         age: ageField === '' ? null : Number(ageField),
-      }).eq('id', session.user.id);
+      }, { onConflict: 'id' });
       if (profileErr) throw profileErr;
 
       const { error: metaErr } = await supabase.auth.updateUser({ data: { full_name: nicknameField.trim() } });
