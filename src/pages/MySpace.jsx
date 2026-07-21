@@ -136,6 +136,48 @@ function GuestLockedPane({ label, onUnlock }) {
   );
 }
 
+function ChatHistoryItem({ item, active, onOpen, onDelete, onRename }) {
+  const [editing, setEditing] = useState(false);
+  const [title, setTitle] = useState(item.title || '');
+
+  const commit = () => {
+    setEditing(false);
+    const trimmed = title.trim();
+    if (trimmed !== (item.title || '')) onRename(item.sessionId, trimmed);
+  };
+
+  return (
+    <div
+      onClick={() => !editing && onOpen(item.sessionId)}
+      className={`group flex items-center justify-between gap-2 rounded-2xl p-3.5 mb-2.5 cursor-pointer transition-transform hover:-translate-y-0.5 ${active ? 'ring-1' : ''}`}
+      style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)' }}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="text-xs mb-1" style={{ color: 'var(--text-faint)' }}>{item.date}</div>
+        {editing ? (
+          <input
+            autoFocus
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            onBlur={commit}
+            onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+            placeholder="Name this chat…"
+            className="text-sm font-medium bg-transparent outline-none border-b w-full"
+            style={{ borderColor: 'var(--card-border)', color: 'var(--text)' }}
+          />
+        ) : (
+          <div className="text-sm font-medium truncate">{item.title || item.snippet}</div>
+        )}
+      </div>
+      <div className="flex items-center gap-2.5 flex-shrink-0">
+        <button onClick={(e) => { e.stopPropagation(); setEditing(true); }} className="text-xs opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: 'var(--accent-deep)' }} title="Rename">✎</button>
+        <button onClick={(e) => { e.stopPropagation(); onDelete(item.sessionId); }} className="text-xs opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: '#C0523A' }}>Delete</button>
+      </div>
+    </div>
+  );
+}
+
 // ---------- Quiet Mode History (Written / Drawings / Voice / Photos) ----------
 
 function JournalWrittenCard({ entry, onUpdate }) {
@@ -361,7 +403,7 @@ export default function MySpace() {
   const [openTool, setOpenTool] = useState(null);
   const [activeSessionId, setActiveSessionId] = useState(null);
   const [thread, setThread] = useState([GREETING]);
-  const [historyItems, setHistoryItems] = useState([]);
+  const [showAllHistory, setShowAllHistory] = useState(false);
   const [draft, setDraft] = useState('');
   const [journal, setJournal] = useState('');
   const [showStormy, setShowStormy] = useState(false);
@@ -439,7 +481,6 @@ export default function MySpace() {
         return { sessionId, date: formatDateLabel(entry.last.created_at), snippet, title: titleMap.get(sessionId) || null };
       });
     setAllSessions(items);
-    setHistoryItems(items.slice(0, 3));
   }, [session]);
 
   const renameSession = async (sessionId, title) => {
@@ -450,7 +491,6 @@ export default function MySpace() {
       .upsert({ session_id: sessionId, user_id: session.user.id, title: trimmed || null, updated_at: new Date().toISOString() }, { onConflict: 'session_id' });
     if (error) { console.error('session rename failed:', error.message); return; }
     setAllSessions((s) => s.map((x) => (x.sessionId === sessionId ? { ...x, title: trimmed || null } : x)));
-    setHistoryItems((s) => s.map((x) => (x.sessionId === sessionId ? { ...x, title: trimmed || null } : x)));
   };
 
   const loadSession = async (sessionId) => {
@@ -728,13 +768,14 @@ export default function MySpace() {
     }
   };
 
-  const deleteSession = async (e, sessionId) => {
-    e.stopPropagation();
+  const deleteSession = async (sessionId) => {
     if (!window.confirm('Ye chat delete karni hai? Wapas nahi aayegi.')) return;
     if (sessionId === activeSessionId) startNewChat();
-    setHistoryItems((h) => h.filter((x) => x.sessionId !== sessionId));
+    setAllSessions((s) => s.filter((x) => x.sessionId !== sessionId));
     const { error } = await supabase.from('messages').delete().eq('user_id', session.user.id).eq('session_id', sessionId);
     if (error) console.error('delete chat failed:', error.message);
+    const { error: titleErr } = await supabase.from('chat_session_titles').delete().eq('user_id', session.user.id).eq('session_id', sessionId);
+    if (titleErr) console.error('delete chat title failed:', titleErr.message);
   };
 
   return (
@@ -807,7 +848,7 @@ export default function MySpace() {
               </div>
             ))}
             {thinking && (
-              <div className="self-start px-4 py-3.5 rounded-2xl rounded-bl-sm text-[13.5px]" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}>thinking..</div>
+              <div className="self-start px-4 py-3.5 rounded-2xl rounded-bl-sm text-[13.5px]" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}>thinking...</div>
             )}
             <div ref={threadEndRef} />
           </div>
@@ -869,22 +910,16 @@ export default function MySpace() {
               className="rounded-[22px] p-6 flex flex-col gap-6 overflow-y-auto backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', boxShadow: '0 20px 50px -30px rgba(80,50,10,0.3)' }}>
               <div>
                 <div className="text-[11.5px] font-bold tracking-[1.4px] uppercase mb-4" style={{ color: 'var(--accent-deep)' }}>History</div>
-                {historyItems.length === 0 && (
+                {allSessions.length === 0 && (
                   <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{isGuest ? 'Sign in to save your chat history.' : 'Past chats will show up here.'}</div>
                 )}
-                {historyItems.map((h) => (
-                  <div key={h.sessionId} onClick={() => loadSession(h.sessionId)}
-                    className={`group flex items-center justify-between gap-2 rounded-2xl p-3.5 mb-2.5 cursor-pointer transition-transform hover:-translate-y-0.5 ${h.sessionId === activeSessionId ? 'ring-1' : ''}`}
-                    style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)' }}>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-xs mb-1" style={{ color: 'var(--text-faint)' }}>{h.date}</div>
-                      <div className="text-sm font-medium truncate">{h.snippet}</div>
-                    </div>
-                    <button onClick={(e) => deleteSession(e, h.sessionId)} className="text-xs opacity-0 group-hover:opacity-100 transition-opacity shrink-0" style={{ color: '#C0523A' }}>Delete</button>
-                  </div>
+                {(showAllHistory ? allSessions : allSessions.slice(0, 3)).map((h) => (
+                  <ChatHistoryItem key={h.sessionId} item={h} active={h.sessionId === activeSessionId} onOpen={loadSession} onDelete={deleteSession} onRename={renameSession} />
                 ))}
-                {historyItems.length > 0 && (
-                  <button onClick={() => navigate('/profile')} className="text-xs font-semibold mt-1" style={{ color: 'var(--accent-deep)' }}>View all →</button>
+                {allSessions.length > 3 && (
+                  <button onClick={() => setShowAllHistory((v) => !v)} className="text-xs font-semibold mt-1" style={{ color: 'var(--accent-deep)' }}>
+                    {showAllHistory ? '← Show less' : `View all (${allSessions.length}) →`}
+                  </button>
                 )}
               </div>
 
