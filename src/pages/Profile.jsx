@@ -42,6 +42,19 @@ function formatDateLabel(iso) {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+function getWeekStart(date = new Date()) {
+  const d = new Date(date);
+  const day = d.getDay(); // 0 = Sun ... 6 = Sat
+  const diff = (day === 0 ? -6 : 1) - day; // shift back to Monday
+  d.setDate(d.getDate() + diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function toISODate(d) {
+  return d.toISOString().slice(0, 10);
+}
+
 function HeartbeatSpectrum({ moodHistory }) {
   const [hover, setHover] = useState(null);
 
@@ -115,6 +128,177 @@ function HeartbeatSpectrum({ moodHistory }) {
           <div className="font-semibold">{points[hover].day.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}</div>
           <div style={{ color: 'var(--text-soft)' }}>{MOOD_LABEL[points[hover].mood]}</div>
         </div>
+      )}
+    </div>
+  );
+}
+
+function WeeklyReport({ session }) {
+  const [report, setReport] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState('');
+  const [hasEnoughData, setHasEnoughData] = useState(null);
+
+  const weekStart = useMemo(() => getWeekStart(), []);
+  const weekStartISO = useMemo(() => toISODate(weekStart), [weekStart]);
+
+  useEffect(() => {
+    if (!session) return;
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      const { data, error: fetchErr } = await supabase
+        .from('weekly_reports')
+        .select('report')
+        .eq('user_id', session.user.id)
+        .eq('week_start', weekStartISO)
+        .maybeSingle();
+      if (cancelled) return;
+      if (fetchErr) console.error('weekly report load failed:', fetchErr.message);
+      if (data?.report) setReport(data.report);
+      setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [session, weekStartISO]);
+
+  const generateReport = async () => {
+    if (!session) return;
+    setGenerating(true);
+    setError('');
+    try {
+      const weekStartTS = weekStart.toISOString();
+
+      const [{ data: msgRows, error: msgErr }, { data: moodRows, error: moodErr }, { data: hopeRows, error: hopeErr }] = await Promise.all([
+        supabase
+          .from('messages')
+          .select('text, created_at')
+          .eq('user_id', session.user.id)
+          .eq('from_role', 'user')
+          .gte('created_at', weekStartTS)
+          .order('created_at', { ascending: true })
+          .limit(150),
+        supabase
+          .from('mood_logs')
+          .select('mood, score, created_at')
+          .eq('user_id', session.user.id)
+          .gte('created_at', weekStartTS)
+          .order('created_at', { ascending: true }),
+        supabase
+          .from('hope_vault_tapes')
+          .select('text_scrap, letter, voice_caption, created_at')
+          .eq('user_id', session.user.id)
+          .gte('created_at', weekStartTS)
+          .order('created_at', { ascending: true }),
+      ]);
+      if (msgErr) throw msgErr;
+      if (moodErr) throw moodErr;
+      if (hopeErr) throw hopeErr;
+
+      if (!(msgRows?.length) && !(moodRows?.length) && !(hopeRows?.length)) {
+        setHasEnoughData(false);
+        setGenerating(false);
+        return;
+      }
+
+      const chats = (msgRows || []).map((m) => ({ text: m.text, date: formatDateLabel(m.created_at) }));
+      const moods = (moodRows || []).map((m) => ({ mood: m.mood, score: m.score, date: formatDateLabel(m.created_at) }));
+      const hopeEntries = (hopeRows || []).map((h) => ({
+        text: h.text_scrap, letter: h.letter, hasVoice: !!h.voice_caption, date: formatDateLabel(h.created_at),
+      }));
+
+      const res = await fetch('/api/weekly-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chats, moods, hopeEntries }),
+      });
+      if (!res.ok) throw new Error(`weekly report request failed: ${res.status}`);
+      const { report: newReport } = await res.json();
+
+      const { error: saveErr } = await supabase
+        .from('weekly_reports')
+        .upsert(
+          { user_id: session.user.id, week_start: weekStartISO, report: newReport },
+          { onConflict: 'user_id,week_start' }
+        );
+      if (saveErr) console.error('weekly report save failed:', saveErr.message);
+
+      setReport(newReport);
+      setHasEnoughData(true);
+    } catch (err) {
+      console.error('weekly report generation failed:', err.message);
+      setError('Report ban nahi paya — dobara try kar.');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  if (loading) {
+    return <div className="text-xs mt-4" style={{ color: 'var(--text-faint)' }}>Loading this week's report…</div>;
+  }
+
+  if (report) {
+    return (
+      <div className="mt-5 rounded-2xl p-5" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
+        <div className="text-[11px] font-semibold tracking-[1.2px] uppercase mb-3" style={{ color: 'var(--accent-deep)' }}>This Week's Report</div>
+        <p className="text-sm mb-3 leading-relaxed">{report.summary}</p>
+
+        <div className="mb-3">
+          <div className="text-xs font-semibold mb-1" style={{ color: 'var(--text-faint)' }}>Mood pattern</div>
+          <p className="text-sm leading-relaxed">{report.moodPattern}</p>
+        </div>
+
+        {report.chatThemes?.length > 0 && (
+          <div className="mb-3">
+            <div className="text-xs font-semibold mb-1" style={{ color: 'var(--text-faint)' }}>What came up in chats</div>
+            <div className="flex flex-wrap gap-2">
+              {report.chatThemes.map((t, i) => (
+                <span key={i} className="text-xs px-2.5 py-1 rounded-full" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)' }}>{t}</span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="mb-3">
+          <div className="text-xs font-semibold mb-1" style={{ color: 'var(--text-faint)' }}>Hope Vault</div>
+          <p className="text-sm leading-relaxed">{report.hopeVaultActivity}</p>
+        </div>
+
+        {report.suggestions?.length > 0 && (
+          <div className="mb-1">
+            <div className="text-xs font-semibold mb-1" style={{ color: 'var(--text-faint)' }}>Worth trying</div>
+            <ul className="text-sm leading-relaxed pl-4" style={{ listStyle: 'disc' }}>
+              {report.suggestions.map((s, i) => <li key={i}>{s}</li>)}
+            </ul>
+          </div>
+        )}
+
+        {report.concern?.flagged && (
+          <div className="mt-3 text-xs rounded-xl p-3" style={{ background: 'var(--surface-strong)', border: '1px solid var(--accent-deep)' }}>
+            {report.concern.note}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-5 rounded-2xl p-5 text-center" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
+      {hasEnoughData === false ? (
+        <p className="text-xs" style={{ color: 'var(--text-faint)' }}>Is hafte abhi kuch activity nahi hai report banane ke liye.</p>
+      ) : (
+        <>
+          <p className="text-xs mb-3" style={{ color: 'var(--text-faint)' }}>Is hafte ka report abhi nahi bana.</p>
+          {error && <p className="text-xs mb-2" style={{ color: '#C0523A' }}>{error}</p>}
+          <button
+            onClick={generateReport}
+            disabled={generating}
+            className="px-5 py-2.5 rounded-full text-[13px] font-semibold"
+            style={{ background: 'var(--ink)', color: 'var(--ink-text)', opacity: generating ? 0.6 : 1 }}
+          >
+            {generating ? 'Analyzing…' : "Generate this week's report"}
+          </button>
+        </>
       )}
     </div>
   );
