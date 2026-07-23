@@ -227,7 +227,7 @@ function WeeklyReport({ session }) {
       setHasEnoughData(true);
     } catch (err) {
       console.error('weekly report generation failed:', err.message);
-      setError('Report ban nahi paya — dobara try kar.');
+      setError('Report generation failed.');
     } finally {
       setGenerating(false);
     }
@@ -288,7 +288,7 @@ function WeeklyReport({ session }) {
         <p className="text-xs" style={{ color: 'var(--text-faint)' }}>Is hafte abhi kuch activity nahi hai report banane ke liye.</p>
       ) : (
         <>
-          <p className="text-xs mb-3" style={{ color: 'var(--text-faint)' }}>Is hafte ka report abhi nahi bana.</p>
+          <p className="text-xs mb-3" style={{ color: 'var(--text-faint)' }}>Report not found for this week</p>
           {error && <p className="text-xs mb-2" style={{ color: '#C0523A' }}>{error}</p>}
           <button
             onClick={generateReport}
