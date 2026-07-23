@@ -679,6 +679,7 @@ export default function Profile() {
                   <div className="text-[11px] font-semibold tracking-[1.4px] uppercase mb-1" style={{ color: 'var(--accent-deep)' }}>Mood Insights</div>
                   <p className="text-xs mb-4" style={{ color: 'var(--text-faint)' }}>Your last 7 days, as a pulse — hover any point.</p>
                   <HeartbeatSpectrum moodHistory={moodHistory} />
+                  <WeeklyReport session={session} />
                 </div>
               )}
 
