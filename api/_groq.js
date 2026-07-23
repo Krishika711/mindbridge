@@ -4,7 +4,7 @@
 const MODEL = "openai/gpt-oss-120b"; // migrated off llama-3.3-70b-versatile, deprecated Aug 2026
 const VISION_MODEL = "qwen/qwen3.6-27b"; // Groq's current multimodal option — preview tier, not production-grade
 
-export async function callGroq(messages, maxTokens) {
+export async function callGroq(messages, maxTokens, options = {}) {
   const GROQ_API_KEY = process.env.GROQ_API_KEY;
   if (!GROQ_API_KEY) {
     throw new Error("Missing GROQ_API_KEY environment variable on the server.");
@@ -15,7 +15,7 @@ export async function callGroq(messages, maxTokens) {
       "Content-Type": "application/json",
       Authorization: `Bearer ${GROQ_API_KEY}`,
     },
-    body: JSON.stringify({ model: MODEL, max_tokens: maxTokens, messages }),
+    body: JSON.stringify({ model: MODEL, max_tokens: maxTokens, messages, ...options }),
   });
   if (!res.ok) {
     const errText = await res.text();
