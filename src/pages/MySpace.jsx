@@ -181,56 +181,76 @@ function ChatHistoryItem({ item, active, onOpen, onDelete, onRename }) {
 // ---------- Quiet Mode History (Written / Drawings / Voice / Photos) ----------
 
 function JournalWrittenCard({ entry, onUpdate }) {
-  const [editing, setEditing] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState(entry.title || '');
   const [text, setText] = useState(entry.text_content || '');
   const [saving, setSaving] = useState(false);
 
-  const save = async () => {
-    if (!text.trim()) return;
-    setSaving(true);
-    await onUpdate(entry.id, text.trim());
-    setSaving(false);
-    setEditing(false);
+  const commitTitle = () => {
+    const trimmed = title.trim();
+    if (trimmed !== (entry.title || '')) onUpdate(entry.id, { title: trimmed || null });
   };
 
-  if (editing) {
-    return (
-      <div className="rounded-2xl p-5" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
-        <textarea
-          autoFocus
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          className="w-full min-h-[90px] resize-none outline-none text-[15px] leading-relaxed bg-transparent mb-3"
-          style={{ fontFamily: 'var(--font-display)', color: 'var(--text)' }}
-        />
-        <div className="flex gap-2">
-          <button onClick={() => { setText(entry.text_content || ''); setEditing(false); }} className="text-xs font-semibold px-3 py-1.5 rounded-full" style={{ border: '1px solid var(--card-border)', color: 'var(--text)' }}>Cancel</button>
-          <button onClick={save} disabled={saving} className="text-xs font-semibold px-3 py-1.5 rounded-full" style={{ background: 'var(--ink)', color: 'var(--ink-text)', opacity: saving ? 0.6 : 1 }}>
-            {saving ? 'Saving…' : 'Save'}
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const saveBody = async () => {
+    if (!text.trim()) return;
+    setSaving(true);
+    await onUpdate(entry.id, { text_content: text.trim() });
+    setSaving(false);
+    setOpen(false);
+  };
 
   return (
-    <button onClick={() => setEditing(true)} className="text-left rounded-2xl p-5 w-full" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
-      <p className="italic text-[15px] leading-relaxed mb-2" style={{ fontFamily: 'var(--font-display)', color: 'var(--text)' }}>
-        "{entry.text_content}"
-      </p>
-      <div className="flex items-center justify-between">
-        <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{entry.date}</div>
-        <div className="text-xs" style={{ color: 'var(--accent-deep)' }}>✎ Edit</div>
-      </div>
-    </button>
+    <div className="rounded-2xl p-5" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
+      <input
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        onBlur={commitTitle}
+        onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+        placeholder="Untitled entry"
+        className="text-sm font-semibold bg-transparent outline-none border-none w-full mb-2"
+        style={{ color: 'var(--accent-deep)' }}
+      />
+
+      {open ? (
+        <>
+          <textarea
+            autoFocus
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            className="w-full min-h-[90px] resize-none outline-none text-[15px] leading-relaxed bg-transparent mb-3"
+            style={{ fontFamily: 'var(--font-display)', color: 'var(--text)' }}
+          />
+          <div className="flex gap-2">
+            <button onClick={() => { setText(entry.text_content || ''); setOpen(false); }} className="text-xs font-semibold px-3 py-1.5 rounded-full" style={{ border: '1px solid var(--card-border)', color: 'var(--text)' }}>Cancel</button>
+            <button onClick={saveBody} disabled={saving} className="text-xs font-semibold px-3 py-1.5 rounded-full" style={{ background: 'var(--ink)', color: 'var(--ink-text)', opacity: saving ? 0.6 : 1 }}>
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </>
+      ) : (
+        <button onClick={() => setOpen(true)} className="text-left w-full">
+          <p
+            className="italic text-[15px] leading-relaxed mb-2"
+            style={{ fontFamily: 'var(--font-display)', color: 'var(--text)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}
+          >
+            "{entry.text_content}"
+          </p>
+          <div className="flex items-center justify-between">
+            <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{entry.date}</div>
+            <div className="text-xs" style={{ color: 'var(--accent-deep)' }}>Open to read & edit →</div>
+          </div>
+        </button>
+      )}
+    </div>
   );
 }
 
 function VoiceRow({ entry, onUpdate }) {
-  const [title, setTitle] = useState(entry.text_content || '');
+  const [title, setTitle] = useState(entry.title || '');
 
   const commit = () => {
-    if (title.trim() !== (entry.text_content || '')) onUpdate(entry.id, title.trim());
+    const trimmed = title.trim();
+    if (trimmed !== (entry.title || '')) onUpdate(entry.id, { title: trimmed || null });
   };
 
   return (
@@ -264,8 +284,8 @@ function JournalMediaThumb({ entry, onOpen, icon }) {
       <div className="w-full aspect-square bg-cover bg-center flex items-center justify-center" style={{ backgroundImage: entry.mediaUrl ? `url(${entry.mediaUrl})` : 'none', background: entry.mediaUrl ? undefined : '#eee' }}>
         {!entry.mediaUrl && <span className="text-2xl">{icon}</span>}
       </div>
-      {entry.text_content && (
-        <div className="text-center mt-1.5 text-[13px] font-semibold truncate px-1" style={{ color: '#4a3c22' }}>{entry.text_content}</div>
+      {entry.title && (
+        <div className="text-center mt-1.5 text-[13px] font-semibold truncate px-1" style={{ color: '#4a3c22' }}>{entry.title}</div>
       )}
       <div className="text-center mt-1 text-sm" style={{ fontFamily: 'var(--font-hand, cursive)', color: '#4a3c22' }}>{entry.date}</div>
     </button>
@@ -273,12 +293,12 @@ function JournalMediaThumb({ entry, onOpen, icon }) {
 }
 
 function JournalLightbox({ entry, onClose, onUpdate }) {
-  const [title, setTitle] = useState(entry.text_content || '');
+  const [title, setTitle] = useState(entry.title || '');
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
     setSaving(true);
-    await onUpdate(entry.id, title.trim());
+    await onUpdate(entry.id, { title: title.trim() || null });
     setSaving(false);
   };
 
@@ -287,10 +307,12 @@ function JournalLightbox({ entry, onClose, onUpdate }) {
       <div
         onClick={(e) => e.stopPropagation()}
         className="bg-white p-3 pb-6 relative"
-        style={{ width: 'min(360px, 90vw)', boxShadow: '0 30px 70px -20px rgba(0,0,0,0.5)' }}
+        style={{ width: 'min(480px, 92vw)', boxShadow: '0 30px 70px -20px rgba(0,0,0,0.5)' }}
       >
-        <button onClick={onClose} className="absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center text-sm" style={{ background: 'rgba(0,0,0,0.06)', color: '#4a3c22' }}>✕</button>
-        {entry.mediaUrl && <img src={entry.mediaUrl} alt="" className="w-full aspect-square object-cover" />}
+        <button onClick={onClose} className="absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center text-sm z-10" style={{ background: 'rgba(0,0,0,0.06)', color: '#4a3c22' }}>✕</button>
+        {entry.mediaUrl && (
+          <img src={entry.mediaUrl} alt="" className="w-full object-contain" style={{ maxHeight: '70vh' }} />
+        )}
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
@@ -536,7 +558,7 @@ export default function MySpace() {
     setEntriesLoading(true);
     const { data, error } = await supabase
       .from('journal_entries')
-      .select('id, type, text_content, media_path, created_at')
+      .select('id, type, title, text_content, media_path, created_at')
       .eq('user_id', session.user.id)
       .order('created_at', { ascending: false });
     setEntriesLoading(false);
@@ -550,7 +572,7 @@ export default function MySpace() {
           if (signErr) console.error('journal media signed url failed:', signErr.message);
           else mediaUrl = signed.signedUrl;
         }
-        return { id: e.id, type: e.type, text_content: e.text_content, mediaUrl, date: formatDateLabel(e.created_at) };
+        return { id: e.id, type: e.type, title: e.title, text_content: e.text_content, mediaUrl, date: formatDateLabel(e.created_at) };
       })
     );
     setJournalEntries(resolved);
@@ -558,20 +580,20 @@ export default function MySpace() {
 
   useEffect(() => { loadJournalEntries(); }, [loadJournalEntries]);
 
-  const saveJournalEntry = async (type, textContent = null, mediaPath = null) => {
+  const saveJournalEntry = async (type, textContent = null, mediaPath = null, title = null) => {
     if (!session) return;
     const { error } = await supabase
       .from('journal_entries')
-      .insert({ user_id: session.user.id, type, text_content: textContent, media_path: mediaPath });
+      .insert({ user_id: session.user.id, type, title, text_content: textContent, media_path: mediaPath });
     if (error) { console.error('journal entry save failed:', error.message); return; }
     loadJournalEntries();
   };
 
-  const updateJournalEntry = async (id, textContent) => {
+  const updateJournalEntry = async (id, fields) => {
     if (!session) return;
-    const { error } = await supabase.from('journal_entries').update({ text_content: textContent }).eq('id', id);
+    const { error } = await supabase.from('journal_entries').update(fields).eq('id', id);
     if (error) { console.error('journal entry update failed:', error.message); return; }
-    setJournalEntries((entries) => entries.map((e) => (e.id === id ? { ...e, text_content: textContent } : e)));
+    setJournalEntries((entries) => entries.map((e) => (e.id === id ? { ...e, ...fields } : e)));
   };
 
   const saveWrittenEntry = () => {
@@ -657,7 +679,9 @@ export default function MySpace() {
         try {
           await sendEmergencyAlert(contactName, contactEmail, userName, triggerText, score.crisis_risk);
           setAlertSent(true);
-        } catch { /* silent */ }
+        } catch (emailErr) {
+          console.error('emergency alert email failed:', emailErr?.text || emailErr?.message || emailErr);
+        }
       }
     }
   };
@@ -848,7 +872,7 @@ export default function MySpace() {
               </div>
             ))}
             {thinking && (
-              <div className="self-start px-4 py-3.5 rounded-2xl rounded-bl-sm text-[13.5px]" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}>thinking...</div>
+              <div className="self-start px-4 py-3.5 rounded-2xl rounded-bl-sm text-[13.5px]" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}> thinking..</div>
             )}
             <div ref={threadEndRef} />
           </div>
