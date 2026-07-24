@@ -124,7 +124,7 @@ function WalkmanPlayer({ yaps }) {
 
       {/* Walkman device */}
       <div
-        className="rounded-3xl p-5 relative shrink-0"
+        className="rounded-3xl p-5 relative flex-shrink-0"
         style={{ width: 260, background: 'var(--ink)', boxShadow: '0 30px 70px -25px rgba(0,0,0,0.45)', border: '1px solid var(--card-border)' }}
       >
         <div className="rounded-xl mb-3 px-3.5 py-3" style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.08)' }}>
@@ -188,7 +188,7 @@ function WalkmanPlayer({ yaps }) {
       {/* Archive */}
       {yaps.length > 0 && (
         <div
-          className="rounded-2xl p-4 shrink-0"
+          className="rounded-2xl p-4 flex-shrink-0"
           style={{ width: 240, maxHeight: 360, overflowY: 'auto', background: 'var(--ink)', border: '1px solid var(--card-border)' }}
         >
           <div className="flex items-center justify-between mb-3 gap-2">
@@ -212,7 +212,7 @@ function WalkmanPlayer({ yaps }) {
                   className="sc-mini-tape flex items-center gap-2 p-1.5 rounded-lg cursor-pointer mb-1"
                   style={{ background: activeTape?.id === t.id ? 'rgba(255,255,255,0.08)' : 'transparent' }}
                 >
-                  <div className="rounded-sm shrink-0 relative" style={{ width: 30, height: 20, background: 'linear-gradient(160deg,#e8ddc4,#cbbd98)' }}>
+                  <div className="rounded-sm flex-shrink-0 relative" style={{ width: 30, height: 20, background: 'linear-gradient(160deg,#e8ddc4,#cbbd98)' }}>
                     <div style={{ position: 'absolute', top: 2, left: 2, right: 2, height: 4, borderRadius: 2, background: t.color }} />
                   </div>
                   <div className="text-[11px] leading-tight" style={{ color: 'var(--text-soft)' }}>
@@ -402,7 +402,7 @@ export default function SafeCircle() {
     try {
       await sendInviteEmail(data, userName);
     } catch (emailErr) {
-      console.error('invite email failed:', emailErr.message || emailErr);
+      console.error('invite email failed:', emailErr?.text || emailErr?.message || emailErr, emailErr?.status ? `(status ${emailErr.status})` : '');
       // contact is still saved even if the email fails — don't lose the add over a mail glitch
     }
 
