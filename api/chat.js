@@ -37,7 +37,7 @@ OTHER RULES:
         },
         ...history,
       ],
-      350
+      100000000000
     );
     res.status(200).json({ text: reply });
   } catch (err) {
