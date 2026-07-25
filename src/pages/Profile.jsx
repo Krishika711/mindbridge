@@ -149,7 +149,7 @@ function ChatHistoryRow({ item, onDelete, onRename }) {
           <div className="text-sm font-medium truncate">{item.title || item.snippet}</div>
         )}
       </div>
-      <div className="flex items-center gap-2.5 flex-shrink-0">
+      <div className="flex items-center gap-2.5 shrink-0">
         <button onClick={() => setEditing(true)} className="text-xs opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: 'var(--accent-deep)' }} title="Rename">✎</button>
         <button
           onClick={() => { if (window.confirm('Once deleted, this chat cannot be recovered.')) onDelete(item.sessionId); }}
@@ -444,12 +444,12 @@ export default function Profile() {
 
           <div className="flex gap-6 items-start flex-col md:flex-row">
             {/* Left sidebar */}
-            <div className="w-full md:w-56 flex md:flex-col gap-2 flex-shrink-0 overflow-x-auto md:overflow-visible pb-1 md:pb-0">
+            <div className="w-full md:w-56 flex md:flex-col gap-2 shrink-0 overflow-x-auto md:overflow-visible pb-1 md:pb-0">
               {NAV_ITEMS.map((item) => (
                 <button
                   key={item.key}
                   onClick={() => setSection(item.key)}
-                  className="flex items-center gap-2.5 px-4 py-3 rounded-2xl text-sm font-semibold text-left flex-shrink-0 whitespace-nowrap"
+                  className="flex items-center gap-2.5 px-4 py-3 rounded-2xl text-sm font-semibold text-left shrink-0 whitespace-nowrap"
                   style={
                     section === item.key
                       ? { background: 'var(--ink)', color: 'var(--ink-text)' }
@@ -468,7 +468,7 @@ export default function Profile() {
                   <div className="text-[11px] font-semibold tracking-[1.4px] uppercase mb-4" style={{ color: 'var(--accent-deep)' }}>Profile</div>
 
                   <div className="flex items-center gap-4 mb-5">
-                    <div className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-semibold overflow-hidden flex-shrink-0" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)' }}>
+                    <div className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-semibold overflow-hidden shrink-0" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)' }}>
                       {avatarUrl ? <img src={avatarUrl} alt="" className="w-full h-full object-cover" /> : (nicknameField || '?').charAt(0).toUpperCase()}
                     </div>
                     <div>
@@ -539,7 +539,7 @@ export default function Profile() {
                   <div className="text-[11px] font-semibold tracking-[1.4px] uppercase mb-4" style={{ color: 'var(--accent-deep)' }}>Chat History</div>
                   {historyLoading && <div className="text-xs" style={{ color: 'var(--text-faint)' }}>Loading…</div>}
                   {!historyLoading && sessions.length === 0 && <div className="text-xs" style={{ color: 'var(--text-faint)' }}>No chats yet.</div>}
-                  <div className="flex flex-col gap-2.5 max-h-[32rem] overflow-y-auto pr-1">
+                  <div className="flex flex-col gap-2.5 max-h-128 overflow-y-auto pr-1">
                     {sessions.map((s) => (
                       <ChatHistoryRow key={s.sessionId} item={s} onDelete={deleteSession} onRename={renameSession} />
                     ))}
