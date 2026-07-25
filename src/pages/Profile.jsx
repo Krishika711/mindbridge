@@ -395,7 +395,7 @@ export default function Profile() {
 
       if (!chats.length && !moodPoints.length && !hopeEntries.length) {
         setWeeklyReport(null);
-        setReportError('Is hafte abhi tak kuch record nahi hua — thodi activity ke baad ek proper report ban paayega.');
+        setReportError('There has not been much recorded yet this week, a proper report will be ready once there is a bit more activity.');
         return;
       }
 
@@ -409,7 +409,7 @@ export default function Profile() {
       setWeeklyReport(data.report || null);
     } catch (err) {
       console.error('weekly report failed:', err.message);
-      setReportError('Report abhi nahi ban payi — thodi der baad try karo.');
+      setReportError('The report could not be generated right now, try again in a little while..');
     } finally {
       setReportLoading(false);
     }
