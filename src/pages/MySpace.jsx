@@ -793,7 +793,7 @@ export default function MySpace() {
   };
 
   const deleteSession = async (sessionId) => {
-    if (!window.confirm('Ye chat delete karni hai? Wapas nahi aayegi.')) return;
+    if (!window.confirm('Once deleted, this chat cannot be recovered.')) return;
     if (sessionId === activeSessionId) startNewChat();
     setAllSessions((s) => s.filter((x) => x.sessionId !== sessionId));
     const { error } = await supabase.from('messages').delete().eq('user_id', session.user.id).eq('session_id', sessionId);
