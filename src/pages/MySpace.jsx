@@ -98,6 +98,41 @@ const TOOL_TABS = [
   { key: 'voice', label: '🎙️' },
 ];
 
+function WriteIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+    </svg>
+  );
+}
+function CanvasIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <rect x="3" y="3" width="18" height="18" rx="3" />
+      <circle cx="8.5" cy="8.5" r="1.4" />
+      <path d="M21 15.5 16 10l-9 9" />
+    </svg>
+  );
+}
+function MicIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <rect x="9" y="1.5" width="6" height="12" rx="3" />
+      <path d="M5 10.5v1a7 7 0 0 0 14 0v-1" />
+      <line x1="12" y1="18.5" x2="12" y2="22" />
+    </svg>
+  );
+}
+function ClockIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3.2 2" />
+    </svg>
+  );
+}
+
 function PhotoRow({ small = false, photos, onAdd, onRemove }) {
   const size = small ? 'w-11 h-11' : 'aspect-square';
   const inputId = `photo-input-${small ? 'small' : 'main'}`;
@@ -128,10 +163,13 @@ function PhotoRow({ small = false, photos, onAdd, onRemove }) {
 
 function GuestLockedPane({ label, onUnlock }) {
   return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-3 rounded-2xl text-center p-8" style={{ background: 'var(--surface)', border: '1px dashed var(--card-border)' }}>
-      <div className="text-2xl">🔒</div>
-      <p className="text-sm max-w-xs" style={{ color: 'var(--text-soft)' }}>{label}</p>
-      <button onClick={onUnlock} className="px-5 py-2 rounded-full text-[13px] font-semibold" style={{ background: 'var(--ink)', color: 'var(--ink-text)' }}>Sign In</button>
+    <div className="flex-1 flex flex-col items-center justify-center gap-3.5 rounded-2xl text-center p-8" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
+      <svg viewBox="0 0 24 24" width={20} height={20} fill="none" stroke="var(--text-faint)" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+        <rect x="5" y="11" width="14" height="9" rx="2" />
+        <path d="M8 11V7.5a4 4 0 0 1 8 0V11" />
+      </svg>
+      <p className="text-[13px] max-w-xs leading-relaxed" style={{ color: 'var(--text-faint)' }}>{label}</p>
+      <button onClick={onUnlock} className="px-5 py-2 rounded-full text-[12.5px] font-medium" style={{ border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}>Sign In</button>
     </div>
   );
 }
@@ -924,7 +962,14 @@ export default function MySpace() {
               </button>
             </div>
           ) : (
-            <button onClick={() => setResponding(true)} className="mt-4 w-full py-3.5 rounded-full font-semibold text-sm" style={{ background: 'var(--ink)', color: 'var(--ink-text)' }}>Go Back to Responding Mode</button>
+            <div className="mt-4 flex justify-center">
+              <button onClick={() => setResponding(true)} className="flex items-center gap-2 px-5 py-2.5 rounded-full text-[13px] font-medium" style={{ border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}>
+                <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                </svg>
+                Resume chatting
+              </button>
+            </div>
           )}
         </section>
 
@@ -968,23 +1013,23 @@ export default function MySpace() {
             <motion.section key="journal" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               className="rounded-[22px] p-8 flex flex-col backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', boxShadow: '0 20px 50px -30px rgba(80,50,10,0.3)' }}>
               <div className="flex justify-end mb-2">
-                <button onClick={() => setShowHistory(true)} className="flex items-center gap-1.5 px-3.5 py-2 rounded-full text-[12.5px] font-semibold cursor-pointer"
-                  style={{ border: '1px solid var(--card-border)', background: 'var(--surface)', color: 'var(--text)' }}>
-                  🕰️ History
+                <button onClick={() => setShowHistory(true)} className="flex items-center gap-1.5 px-3.5 py-2 rounded-full text-[12px] font-medium cursor-pointer"
+                  style={{ border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}>
+                  <ClockIcon /> History
                 </button>
               </div>
-              <div className="flex items-end justify-between mb-5 flex-wrap gap-3">
+              <div className="flex items-end justify-between mb-6 flex-wrap gap-3">
                 <div>
-                  <div className="text-[11.5px] font-bold tracking-[1.4px] uppercase mb-1.5" style={{ color: 'var(--accent-deep)' }}>Journal</div>
-                  <div className="italic font-semibold text-2xl" style={{ fontFamily: 'var(--font-display)', color: 'var(--accent-deep)' }}>
-                    {new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                  <div className="text-[11px] font-semibold tracking-[1.4px] uppercase mb-1.5" style={{ color: 'var(--text-faint)' }}>Journal</div>
+                  <div className="font-medium text-[22px]" style={{ fontFamily: 'var(--font-display)', color: 'var(--text)' }}>
+                    {new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}
                   </div>
                 </div>
-                <div className="flex gap-2">
-                  {[{ key: 'write', label: '✍️ Write' }, { key: 'draw', label: '🎨 Draw' }, { key: 'voice', label: '🎙️ Voice' }].map((t) => (
-                    <button key={t.key} onClick={() => setJournalTab(t.key)} className="px-3.5 py-2 rounded-full text-[12.5px] font-semibold"
-                      style={journalTab === t.key ? { background: 'var(--ink)', color: 'var(--ink-text)' } : { border: '1px solid var(--card-border)', background: 'var(--surface)', color: 'var(--text)' }}>
-                      {t.label}
+                <div className="flex gap-1.5 p-1 rounded-full" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
+                  {[{ key: 'write', label: 'Write', Icon: WriteIcon }, { key: 'draw', label: 'Draw', Icon: CanvasIcon }, { key: 'voice', label: 'Voice', Icon: MicIcon }].map((t) => (
+                    <button key={t.key} onClick={() => setJournalTab(t.key)} className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12px] font-medium transition-colors"
+                      style={journalTab === t.key ? { background: 'var(--card-bg)', color: 'var(--accent-deep)', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' } : { color: 'var(--text-faint)' }}>
+                      <t.Icon /> {t.label}
                     </button>
                   ))}
                 </div>
