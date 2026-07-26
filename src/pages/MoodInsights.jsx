@@ -1,9 +1,10 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../components/Header';
 import MoodBackground from '../components/MoodBackground';
 import { HelpButton } from '../components/ui/Misc';
 import { useMood, MOODS } from '../context/MoodContext';
+import { supabase } from '../lib/supabaseClient';
 
 const MOOD_COLOR = {
   joyful: '#E6A93A', neutral: '#8CA283', anxious: '#8593A3', sad: '#5B6E9A', numb: '#98A0BC',
@@ -38,9 +39,277 @@ function dominantMood(moods) {
   })[0];
 }
 
+// Monday-based — matches the AI weekly report / cron job, intentionally
+// different from startOfWeek() above which the native mood-color widget uses.
+function getWeekStart(date = new Date()) {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = (day === 0 ? -6 : 1) - day;
+  d.setDate(d.getDate() + diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function toISODate(d) {
+  return d.toISOString().slice(0, 10);
+}
+
+function formatDateLabel(iso) {
+  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function WeeklyReport({ session }) {
+  const [report, setReport] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState('');
+  const [hasEnoughData, setHasEnoughData] = useState(null);
+
+  const weekStart = useMemo(() => getWeekStart(), []);
+  const weekStartISO = useMemo(() => toISODate(weekStart), [weekStart]);
+
+  useEffect(() => {
+    if (!session) { setLoading(false); return; }
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      const { data, error: fetchErr } = await supabase
+        .from('weekly_reports')
+        .select('report')
+        .eq('user_id', session.user.id)
+        .eq('week_start', weekStartISO)
+        .maybeSingle();
+      if (cancelled) return;
+      if (fetchErr) console.error('weekly report load failed:', fetchErr.message);
+      if (data?.report) setReport(data.report);
+      setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [session, weekStartISO]);
+
+  const generateReport = async () => {
+    if (!session) return;
+    setGenerating(true);
+    setError('');
+    try {
+      const weekStartTS = weekStart.toISOString();
+
+      const [{ data: msgRows, error: msgErr }, { data: moodRows, error: moodErr }, { data: hopeRows, error: hopeErr }] = await Promise.all([
+        supabase
+          .from('messages')
+          .select('text, created_at')
+          .eq('user_id', session.user.id)
+          .eq('from_role', 'user')
+          .gte('created_at', weekStartTS)
+          .order('created_at', { ascending: true })
+          .limit(150),
+        supabase
+          .from('mood_logs')
+          .select('mood, score, created_at')
+          .eq('user_id', session.user.id)
+          .gte('created_at', weekStartTS)
+          .order('created_at', { ascending: true }),
+        supabase
+          .from('hope_vault_tapes')
+          .select('text_scrap, letter, voice_caption, created_at')
+          .eq('user_id', session.user.id)
+          .gte('created_at', weekStartTS)
+          .order('created_at', { ascending: true }),
+      ]);
+      if (msgErr) throw msgErr;
+      if (moodErr) throw moodErr;
+      if (hopeErr) throw hopeErr;
+
+      if (!(msgRows?.length) && !(moodRows?.length) && !(hopeRows?.length)) {
+        setHasEnoughData(false);
+        setGenerating(false);
+        return;
+      }
+
+      const chats = (msgRows || []).map((m) => ({ text: m.text, date: formatDateLabel(m.created_at) }));
+      const moods = (moodRows || []).map((m) => ({ mood: m.mood, score: m.score, date: formatDateLabel(m.created_at) }));
+      const hopeEntries = (hopeRows || []).map((h) => ({
+        text: h.text_scrap, letter: h.letter, hasVoice: !!h.voice_caption, date: formatDateLabel(h.created_at),
+      }));
+
+      const res = await fetch('/api/weekly-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chats, moods, hopeEntries }),
+      });
+      if (!res.ok) throw new Error(`weekly report request failed: ${res.status}`);
+      const { report: newReport } = await res.json();
+
+      const { error: saveErr } = await supabase
+        .from('weekly_reports')
+        .upsert(
+          {
+            user_id: session.user.id,
+            week_start: weekStartISO,
+            report: newReport,
+            activity_snapshot: { chats, moods, hopeEntries },
+          },
+          { onConflict: 'user_id,week_start' }
+        );
+      if (saveErr) console.error('weekly report save failed:', saveErr.message);
+
+      setReport(newReport);
+      setHasEnoughData(true);
+    } catch (err) {
+      console.error('weekly report generation failed:', err.message);
+      setError('Report ban nahi paya — dobara try kar.');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  if (!session) return null;
+
+  if (loading) {
+    return <div className="text-xs mb-8" style={{ color: 'var(--text-faint)' }}>Loading this week's report…</div>;
+  }
+
+  if (report) {
+    return (
+      <div className="rounded-3xl p-8 backdrop-blur-md mb-8" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
+        <div className="text-[11px] font-semibold tracking-[1.4px] uppercase mb-3.5" style={{ color: 'var(--accent-deep)' }}>
+          This week's AI report
+        </div>
+        <p className="text-sm mb-4 leading-relaxed">{report.summary}</p>
+
+        <div className="mb-4">
+          <div className="text-xs font-semibold mb-1" style={{ color: 'var(--text-faint)' }}>Mood pattern</div>
+          <p className="text-sm leading-relaxed">{report.moodPattern}</p>
+        </div>
+
+        {report.chatThemes?.length > 0 && (
+          <div className="mb-4">
+            <div className="text-xs font-semibold mb-1" style={{ color: 'var(--text-faint)' }}>What came up in chats</div>
+            <div className="flex flex-wrap gap-2">
+              {report.chatThemes.map((t, i) => (
+                <span key={i} className="text-xs px-2.5 py-1 rounded-full" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>{t}</span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="mb-4">
+          <div className="text-xs font-semibold mb-1" style={{ color: 'var(--text-faint)' }}>Hope Vault</div>
+          <p className="text-sm leading-relaxed">{report.hopeVaultActivity}</p>
+        </div>
+
+        {report.suggestions?.length > 0 && (
+          <div className="mb-1">
+            <div className="text-xs font-semibold mb-1" style={{ color: 'var(--text-faint)' }}>Worth trying</div>
+            <ul className="text-sm leading-relaxed pl-4" style={{ listStyle: 'disc' }}>
+              {report.suggestions.map((s, i) => <li key={i}>{s}</li>)}
+            </ul>
+          </div>
+        )}
+
+        {report.concern?.flagged && (
+          <div className="mt-4 text-xs rounded-xl p-3" style={{ background: 'var(--surface)', border: '1px solid var(--accent-deep)' }}>
+            {report.concern.note}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-3xl p-8 backdrop-blur-md mb-8 text-center" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
+      {hasEnoughData === false ? (
+        <p className="text-xs" style={{ color: 'var(--text-faint)' }}>Is hafte abhi kuch activity nahi hai report banane ke liye.</p>
+      ) : (
+        <>
+          <p className="text-xs mb-3" style={{ color: 'var(--text-faint)' }}>
+            Reports Monday raat auto-generate hote hain. Is hafte ka abhi nahi bana.
+          </p>
+          {error && <p className="text-xs mb-2" style={{ color: '#C0523A' }}>{error}</p>}
+          <button
+            onClick={generateReport}
+            disabled={generating}
+            className="px-5 py-2.5 rounded-full text-[13px] font-semibold"
+            style={{ background: 'var(--ink)', color: 'var(--ink-text)', opacity: generating ? 0.6 : 1 }}
+          >
+            {generating ? 'Analyzing…' : 'Generate now instead'}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+function PastReports({ session }) {
+  const [reports, setReports] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [expandedId, setExpandedId] = useState(null);
+
+  useEffect(() => {
+    if (!session) { setLoading(false); return; }
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('weekly_reports')
+        .select('id, week_start, report')
+        .eq('user_id', session.user.id)
+        .order('week_start', { ascending: false })
+        .limit(11); // current week + up to 10 past weeks
+      if (cancelled) return;
+      if (error) console.error('past reports load failed:', error.message);
+      setReports((data || []).slice(1)); // drop current week — WeeklyReport already shows it above
+      setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [session]);
+
+  if (!session || loading || reports.length === 0) return null;
+
+  return (
+    <>
+      <div className="text-lg mb-3" style={{ fontFamily: 'var(--font-display)', fontWeight: 600 }}>Past AI reports</div>
+      <div className="flex flex-col gap-2.5 mb-8">
+        {reports.map((r) => {
+          const isOpen = expandedId === r.id;
+          const start = new Date(r.week_start);
+          const end = new Date(start);
+          end.setDate(start.getDate() + 6);
+          const label = `${start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${end.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+          const preview = r.report?.summary || '';
+          return (
+            <div key={r.id} className="rounded-2xl p-3.5" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
+              <button onClick={() => setExpandedId(isOpen ? null : r.id)} className="w-full flex items-center justify-between text-left gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">{label}</div>
+                  <div className="text-xs truncate" style={{ color: 'var(--text-faint)' }}>
+                    {preview.length > 70 ? `${preview.slice(0, 70)}…` : preview}
+                  </div>
+                </div>
+                <span className="text-xs shrink-0" style={{ color: 'var(--text-faint)' }}>{isOpen ? '−' : '+'}</span>
+              </button>
+              {isOpen && (
+                <div className="mt-3 pt-3 text-sm leading-relaxed" style={{ borderTop: '1px solid var(--card-border)' }}>
+                  <p className="mb-2">{r.report?.summary}</p>
+                  <p className="mb-2" style={{ color: 'var(--text-faint)' }}>{r.report?.moodPattern}</p>
+                  {r.report?.suggestions?.length > 0 && (
+                    <ul className="pl-4" style={{ listStyle: 'disc' }}>
+                      {r.report.suggestions.map((s, i) => <li key={i}>{s}</li>)}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
 export default function MoodInsights() {
   const navigate = useNavigate();
-  const { theme, mode, moodHistory } = useMood();
+  const { theme, mode, moodHistory, session } = useMood();
 
   const thisWeekStart = useMemo(() => startOfWeek(new Date()), []);
   const thisWeekEnd = useMemo(() => {
@@ -144,6 +413,9 @@ export default function MoodInsights() {
               ))}
             </div>
           </div>
+
+          <WeeklyReport session={session} />
+          <PastReports session={session} />
 
           {/* Past weeks archive */}
           {pastWeeks.length > 0 && (
