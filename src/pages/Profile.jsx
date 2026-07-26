@@ -42,6 +42,20 @@ function formatDateLabel(iso) {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+// Monday-based — matches the cron job that pre-generates reports every Monday.
+function getWeekStart(date = new Date()) {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = (day === 0 ? -6 : 1) - day;
+  d.setDate(d.getDate() + diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function toISODate(d) {
+  return d.toISOString().slice(0, 10);
+}
+
 function HeartbeatSpectrum({ moodHistory }) {
   const [hover, setHover] = useState(null);
 
@@ -376,14 +390,14 @@ export default function Profile() {
     setReportLoading(true);
     setReportError('');
     try {
-      const weekAgo = new Date();
-      weekAgo.setDate(weekAgo.getDate() - 7);
-      const weekAgoIso = weekAgo.toISOString();
+      const weekStart = getWeekStart();
+      const weekStartISO = toISODate(weekStart);
+      const weekStartTS = weekStart.toISOString();
 
       const [{ data: msgs, error: msgErr }, { data: moods, error: moodErr }, { data: hope, error: hopeErr }] = await Promise.all([
-        supabase.from('messages').select('text, created_at').eq('user_id', session.user.id).eq('from_role', 'user').gte('created_at', weekAgoIso).order('created_at', { ascending: true }),
-        supabase.from('mood_logs').select('mood, score, created_at').eq('user_id', session.user.id).gte('created_at', weekAgoIso).order('created_at', { ascending: true }),
-        supabase.from('hope_vault_tapes').select('text_scrap, voice_caption, letter, created_at').eq('user_id', session.user.id).gte('created_at', weekAgoIso).order('created_at', { ascending: true }),
+        supabase.from('messages').select('text, created_at').eq('user_id', session.user.id).eq('from_role', 'user').gte('created_at', weekStartTS).order('created_at', { ascending: true }),
+        supabase.from('mood_logs').select('mood, score, created_at').eq('user_id', session.user.id).gte('created_at', weekStartTS).order('created_at', { ascending: true }),
+        supabase.from('hope_vault_tapes').select('text_scrap, voice_caption, letter, created_at').eq('user_id', session.user.id).gte('created_at', weekStartTS).order('created_at', { ascending: true }),
       ]);
       if (msgErr) console.error('weekly report messages load failed:', msgErr.message);
       if (moodErr) console.error('weekly report moods load failed:', moodErr.message);
@@ -407,6 +421,21 @@ export default function Profile() {
       if (!res.ok) throw new Error(`weekly report failed ${res.status}`);
       const data = await res.json();
       setWeeklyReport(data.report || null);
+
+      if (data.report) {
+        const { error: saveErr } = await supabase
+          .from('weekly_reports')
+          .upsert(
+            {
+              user_id: session.user.id,
+              week_start: weekStartISO,
+              report: data.report,
+              activity_snapshot: { chats, moods: moodPoints, hopeEntries },
+            },
+            { onConflict: 'user_id,week_start' }
+          );
+        if (saveErr) console.error('weekly report save failed:', saveErr.message);
+      }
     } catch (err) {
       console.error('weekly report failed:', err.message);
       setReportError('The report could not be generated right now, try again in a little while..');
@@ -416,10 +445,23 @@ export default function Profile() {
   }, [session]);
 
   useEffect(() => {
-    if (section === 'mood' && session && !reportFetched) {
-      setReportFetched(true);
-      generateWeeklyReport();
-    }
+    if (section !== 'mood' || !session || reportFetched) return;
+    setReportFetched(true);
+    (async () => {
+      const weekStartISO = toISODate(getWeekStart());
+      const { data, error } = await supabase
+        .from('weekly_reports')
+        .select('report')
+        .eq('user_id', session.user.id)
+        .eq('week_start', weekStartISO)
+        .maybeSingle();
+      if (error) console.error('weekly report cache check failed:', error.message);
+      if (data?.report) {
+        setWeeklyReport(data.report);
+      } else {
+        generateWeeklyReport();
+      }
+    })();
   }, [section, session, reportFetched, generateWeeklyReport]);
 
   const saveEmergencyContact = async () => {
