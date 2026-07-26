@@ -66,7 +66,9 @@ async function claudeRespondToVoice(audioDataUrl, signal) {
 }
 
 async function sendEmergencyAlert(contactName, contactEmail, userName, triggerMessage, riskLevel) {
-  emailjs.init(import.meta.env.VITE_EMAILJS_PUBLIC_KEY);
+  const publicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
+  if (!publicKey) throw new Error('VITE_EMAILJS_PUBLIC_KEY is missing at build time — check Vercel env vars and redeploy.');
+  emailjs.init(publicKey);
   return emailjs.send(
     import.meta.env.VITE_EMAILJS_SERVICE_ID,
     import.meta.env.VITE_EMAILJS_TEMPLATE_ID,
@@ -98,41 +100,6 @@ const TOOL_TABS = [
   { key: 'voice', label: '🎙️' },
 ];
 
-function WriteIcon(props) {
-  return (
-    <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" {...props}>
-      <path d="M12 20h9" />
-      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
-    </svg>
-  );
-}
-function CanvasIcon(props) {
-  return (
-    <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" {...props}>
-      <rect x="3" y="3" width="18" height="18" rx="3" />
-      <circle cx="8.5" cy="8.5" r="1.4" />
-      <path d="M21 15.5 16 10l-9 9" />
-    </svg>
-  );
-}
-function MicIcon(props) {
-  return (
-    <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" {...props}>
-      <rect x="9" y="1.5" width="6" height="12" rx="3" />
-      <path d="M5 10.5v1a7 7 0 0 0 14 0v-1" />
-      <line x1="12" y1="18.5" x2="12" y2="22" />
-    </svg>
-  );
-}
-function ClockIcon(props) {
-  return (
-    <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" {...props}>
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 7v5l3.2 2" />
-    </svg>
-  );
-}
-
 function PhotoRow({ small = false, photos, onAdd, onRemove }) {
   const size = small ? 'w-11 h-11' : 'aspect-square';
   const inputId = `photo-input-${small ? 'small' : 'main'}`;
@@ -163,13 +130,10 @@ function PhotoRow({ small = false, photos, onAdd, onRemove }) {
 
 function GuestLockedPane({ label, onUnlock }) {
   return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-3.5 rounded-2xl text-center p-8" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
-      <svg viewBox="0 0 24 24" width={20} height={20} fill="none" stroke="var(--text-faint)" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-        <rect x="5" y="11" width="14" height="9" rx="2" />
-        <path d="M8 11V7.5a4 4 0 0 1 8 0V11" />
-      </svg>
-      <p className="text-[13px] max-w-xs leading-relaxed" style={{ color: 'var(--text-faint)' }}>{label}</p>
-      <button onClick={onUnlock} className="px-5 py-2 rounded-full text-[12.5px] font-medium" style={{ border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}>Sign In</button>
+    <div className="flex-1 flex flex-col items-center justify-center gap-3 rounded-2xl text-center p-8" style={{ background: 'var(--surface)', border: '1px dashed var(--card-border)' }}>
+      <div className="text-2xl">🔒</div>
+      <p className="text-sm max-w-xs" style={{ color: 'var(--text-soft)' }}>{label}</p>
+      <button onClick={onUnlock} className="px-5 py-2 rounded-full text-[13px] font-semibold" style={{ background: 'var(--ink)', color: 'var(--ink-text)' }}>Sign In</button>
     </div>
   );
 }
@@ -463,7 +427,6 @@ export default function MySpace() {
   const [openTool, setOpenTool] = useState(null);
   const [activeSessionId, setActiveSessionId] = useState(null);
   const [thread, setThread] = useState([GREETING]);
-  const [showAllHistory, setShowAllHistory] = useState(false);
   const [draft, setDraft] = useState('');
   const [journal, setJournal] = useState('');
   const [showStormy, setShowStormy] = useState(false);
@@ -831,7 +794,7 @@ export default function MySpace() {
   };
 
   const deleteSession = async (sessionId) => {
-    if (!window.confirm('Once deleted, this chat cannot be recovered.')) return;
+    if (!window.confirm('Are you sure you want to delete this chat? It cannot be undone.')) return;
     if (sessionId === activeSessionId) startNewChat();
     setAllSessions((s) => s.filter((x) => x.sessionId !== sessionId));
     const { error } = await supabase.from('messages').delete().eq('user_id', session.user.id).eq('session_id', sessionId);
@@ -858,102 +821,91 @@ export default function MySpace() {
         Welcome back, {userName || 'Friend'} · feeling <span style={{ color: 'var(--accent-deep)', fontWeight: 600 }}>{mood}</span> today
       </div>
 
-      <main className={`relative z-10 flex-1 grid gap-5 p-6 px-9 min-h-0 ${responding ? 'md:grid-cols-[1.7fr_1fr]' : 'md:grid-cols-[320px_1fr]'} grid-cols-1`}>
-        <section className="flex flex-col rounded-[22px] p-6 backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', boxShadow: '0 20px 50px -30px rgba(80,50,10,0.3)' }}>
-          {crisisVisible && (
-            <div className="flex items-start justify-between gap-3 rounded-2xl px-4 py-3 mb-3.5 text-[12.5px] leading-relaxed" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}>
-              <span>
-                🌙 It is understanble and you're not alone.
-                {alertSent && contactName && <span style={{ color: 'var(--accent-deep)' }}> · {contactName} ko quietly inform kar diya gaya hai.</span>}
-              </span>
-              <button onClick={() => setCrisisVisible(false)} style={{ color: 'var(--text-faint)' }}>✕</button>
-            </div>
-          )}
+      <main className={`relative z-10 flex-1 p-6 px-9 min-h-0 ${responding ? 'grid gap-5 md:grid-cols-[1.7fr_1fr] grid-cols-1' : 'flex flex-col'}`}>
+        {responding && (
+          <section className="flex flex-col rounded-[22px] p-6 backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', boxShadow: '0 20px 50px -30px rgba(80,50,10,0.3)' }}>
+            {crisisVisible && (
+              <div className="flex items-start justify-between gap-3 rounded-2xl px-4 py-3 mb-3.5 text-[12.5px] leading-relaxed" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}>
+                <span>
+                  🌙 It is understanble and you're not alone.
+                  {alertSent && contactName && <span style={{ color: 'var(--accent-deep)' }}> · {contactName} ko quietly inform kar diya gaya hai.</span>}
+                </span>
+                <button onClick={() => setCrisisVisible(false)} style={{ color: 'var(--text-faint)' }}>✕</button>
+              </div>
+            )}
 
-          {responding ? (
             <div className="flex items-center justify-between mb-4">
               <div className="text-[11.5px] font-bold tracking-[1.4px] uppercase" style={{ color: 'var(--accent-deep)' }}>Chat with Wisp</div>
               <button onClick={startNewChat} className="text-[11.5px] font-semibold px-3 py-1.5 rounded-full" style={{ border: '1px solid var(--card-border)', color: 'var(--accent-deep)' }}>+ New Chat</button>
             </div>
-          ) : (
-            <div className="mb-3.5">
-              <div className="text-xs font-bold tracking-[1.2px]" style={{ color: 'var(--accent-deep)' }}>WISP</div>
-              <div className="text-sm italic mt-0.5" style={{ color: 'var(--text-soft)' }}>Quiet mode — chat paused.</div>
-            </div>
-          )}
 
-          <div className="flex-1 overflow-y-auto flex flex-col gap-3 py-1.5 pr-1 min-h-40">
-            {thread.map((m, i) => (
-              <div key={m.id ?? `local-${i}`} className={`group max-w-[82%] px-4 py-3.5 rounded-2xl text-[14.5px] leading-relaxed relative ${m.from === 'user' ? 'self-end rounded-br-sm' : 'self-start rounded-bl-sm'}`}
-                style={m.from === 'wisp' ? { background: 'var(--surface-strong)', border: '1px solid var(--card-border)' } : responding ? { background: 'var(--ink)', color: 'var(--ink-text)' } : { background: 'var(--surface)', border: '1px solid var(--card-border)', color: 'var(--text)' }}>
-                {editingIndex === i ? (
-                  <div className="flex flex-col gap-2 min-w-50">
-                    <input autoFocus value={editingText} onChange={(e) => setEditingText(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') cancelEdit(); }}
-                      className="bg-transparent outline-none border-b text-[14.5px]" style={{ borderColor: 'rgba(255,255,255,0.3)', color: 'inherit' }} />
-                    <div className="flex gap-2 text-[11px] font-semibold">
-                      <button onClick={saveEdit} style={{ opacity: 0.9 }}>Save &amp; regenerate</button>
-                      <button onClick={cancelEdit} style={{ opacity: 0.6 }}>Cancel</button>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    {m.image && <img src={m.image} alt="Shared drawing" className="rounded-xl mb-1.5 max-w-55" style={{ border: '1px solid rgba(255,255,255,0.15)' }} />}
-                    {m.audio && <audio controls src={m.audio} className="mb-1.5 max-w-60 h-9" />}
-                    {m.text}
-                    {m.from === 'user' && !m.image && !m.audio && (
-                      <button onClick={() => startEdit(i)} className="absolute -left-6 top-3 opacity-0 group-hover:opacity-60 hover:opacity-100! text-xs"
-                        style={{ color: 'var(--text-soft)' }} aria-label="Edit message" title="Edit — will regenerate the reply after this">✎</button>
-                    )}
-                  </>
-                )}
-              </div>
-            ))}
-            {thinking && (
-              <div className="self-start px-4 py-3.5 rounded-2xl rounded-bl-sm text-[13.5px]" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}> thinking..</div>
-            )}
-            <div ref={threadEndRef} />
-          </div>
-
-          {responding && (
-            <>
-              <div className="flex gap-2 mt-3">
-                {TOOL_TABS.map((t) => (
-                  <button key={t.key} onClick={() => toggleTool(t.key)} className="px-3 py-1.5 rounded-full text-[12px] font-semibold"
-                    style={openTool === t.key ? { background: 'var(--ink)', color: 'var(--ink-text)' } : { border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}>
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-              <AnimatePresence>
-                {openTool && (
-                  <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-                    className="overflow-hidden rounded-2xl mt-2.5" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)' }}>
-                    <div className="p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-[11px] font-bold uppercase tracking-[1.2px]" style={{ color: 'var(--accent-deep)' }}>
-                          {openTool === 'write' ? 'Quick Note' : openTool === 'draw' ? 'Draw' : 'Voice Note'}
-                        </span>
-                        <button onClick={() => setOpenTool(null)} style={{ color: 'var(--text-faint)' }}>✕</button>
+            <div className="flex-1 overflow-y-auto flex flex-col gap-3 py-1.5 pr-1 min-h-40">
+              {thread.map((m, i) => (
+                <div key={m.id ?? `local-${i}`} className={`group max-w-[82%] px-4 py-3.5 rounded-2xl text-[14.5px] leading-relaxed relative ${m.from === 'user' ? 'self-end rounded-br-sm' : 'self-start rounded-bl-sm'}`}
+                  style={m.from === 'wisp' ? { background: 'var(--surface-strong)', border: '1px solid var(--card-border)' } : { background: 'var(--ink)', color: 'var(--ink-text)' }}>
+                  {editingIndex === i ? (
+                    <div className="flex flex-col gap-2 min-w-50">
+                      <input autoFocus value={editingText} onChange={(e) => setEditingText(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') cancelEdit(); }}
+                        className="bg-transparent outline-none border-b text-[14.5px]" style={{ borderColor: 'rgba(255,255,255,0.3)', color: 'inherit' }} />
+                      <div className="flex gap-2 text-[11px] font-semibold">
+                        <button onClick={saveEdit} style={{ opacity: 0.9 }}>Save &amp; regenerate</button>
+                        <button onClick={cancelEdit} style={{ opacity: 0.6 }}>Cancel</button>
                       </div>
-                      {openTool === 'write' && (
-                        <textarea value={journal} onChange={(e) => { if (guardGuestWrite(e.target.value)) setJournal(e.target.value); }}
-                          placeholder="Jot something down while you chat..." className="w-full resize-none outline-none border-none bg-transparent text-sm leading-relaxed min-h-25" style={{ color: 'var(--text)' }} />
-                      )}
-                      {openTool === 'draw' && (
-                        isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to save your drawings" /> : <DrawCanvas onSendToChat={sendDrawingToChat} onSaved={(path) => saveJournalEntry('drawing', null, path)} />
-                      )}
-                      {openTool === 'voice' && (
-                        isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to record voice notes" /> : <VoiceNotes onSaved={(path) => saveJournalEntry('voice', null, path)} onSendToChat={sendVoiceToChat} />
-                      )}
                     </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </>
-          )}
+                  ) : (
+                    <>
+                      {m.image && <img src={m.image} alt="Shared drawing" className="rounded-xl mb-1.5 max-w-55" style={{ border: '1px solid rgba(255,255,255,0.15)' }} />}
+                      {m.audio && <audio controls src={m.audio} className="mb-1.5 max-w-60 h-9" />}
+                      {m.text}
+                      {m.from === 'user' && !m.image && !m.audio && (
+                        <button onClick={() => startEdit(i)} className="absolute -left-6 top-3 opacity-0 group-hover:opacity-60 hover:opacity-100! text-xs"
+                          style={{ color: 'var(--text-soft)' }} aria-label="Edit message" title="Edit — will regenerate the reply after this">✎</button>
+                      )}
+                    </>
+                  )}
+                </div>
+              ))}
+              {thinking && (
+                <div className="self-start px-4 py-3.5 rounded-2xl rounded-bl-sm text-[13.5px]" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}>thinking..</div>
+              )}
+              <div ref={threadEndRef} />
+            </div>
 
-          {responding ? (
+            <div className="flex gap-2 mt-3">
+              {TOOL_TABS.map((t) => (
+                <button key={t.key} onClick={() => toggleTool(t.key)} className="px-3 py-1.5 rounded-full text-[12px] font-semibold"
+                  style={openTool === t.key ? { background: 'var(--ink)', color: 'var(--ink-text)' } : { border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <AnimatePresence>
+              {openTool && (
+                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+                  className="overflow-hidden rounded-2xl mt-2.5" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)' }}>
+                  <div className="p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[11px] font-bold uppercase tracking-[1.2px]" style={{ color: 'var(--accent-deep)' }}>
+                        {openTool === 'write' ? 'Quick Note' : openTool === 'draw' ? 'Draw' : 'Voice Note'}
+                      </span>
+                      <button onClick={() => setOpenTool(null)} style={{ color: 'var(--text-faint)' }}>✕</button>
+                    </div>
+                    {openTool === 'write' && (
+                      <textarea value={journal} onChange={(e) => { if (guardGuestWrite(e.target.value)) setJournal(e.target.value); }}
+                        placeholder="Jot something down while you chat..." className="w-full resize-none outline-none border-none bg-transparent text-sm leading-relaxed min-h-25" style={{ color: 'var(--text)' }} />
+                    )}
+                    {openTool === 'draw' && (
+                      isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to save your drawings" /> : <DrawCanvas onSendToChat={sendDrawingToChat} onSaved={(path) => saveJournalEntry('drawing', null, path)} />
+                    )}
+                    {openTool === 'voice' && (
+                      isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to record voice notes" /> : <VoiceNotes onSaved={(path) => saveJournalEntry('voice', null, path)} onSendToChat={sendVoiceToChat} />
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             <div className="flex items-center gap-2.5 mt-3.5 rounded-full pl-4 pr-1.5 py-1.5" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)' }}>
               <input value={draft} onChange={(e) => { if (guardGuestWrite(e.target.value)) setDraft(e.target.value); }} onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
                 placeholder="Write something..." disabled={editingIndex !== null} className="flex-1 bg-transparent outline-none border-none text-sm" style={{ color: 'var(--text)' }} />
@@ -961,17 +913,8 @@ export default function MySpace() {
                 <svg viewBox="0 0 24 24" width={15} height={15} fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2z" /></svg>
               </button>
             </div>
-          ) : (
-            <div className="mt-4 flex justify-center">
-              <button onClick={() => setResponding(true)} className="flex items-center gap-2 px-5 py-2.5 rounded-full text-[13px] font-medium" style={{ border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}>
-                <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                </svg>
-                Resume chatting
-              </button>
-            </div>
-          )}
-        </section>
+          </section>
+        )}
 
         <AnimatePresence mode="wait">
           {responding ? (
@@ -982,12 +925,12 @@ export default function MySpace() {
                 {allSessions.length === 0 && (
                   <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{isGuest ? 'Sign in to save your chat history.' : 'Past chats will show up here.'}</div>
                 )}
-                {(showAllHistory ? allSessions : allSessions.slice(0, 3)).map((h) => (
+                {allSessions.slice(0, 2).map((h) => (
                   <ChatHistoryItem key={h.sessionId} item={h} active={h.sessionId === activeSessionId} onOpen={loadSession} onDelete={deleteSession} onRename={renameSession} />
                 ))}
-                {allSessions.length > 3 && (
-                  <button onClick={() => setShowAllHistory((v) => !v)} className="text-xs font-semibold mt-1" style={{ color: 'var(--accent-deep)' }}>
-                    {showAllHistory ? '← Show less' : `View all (${allSessions.length}) →`}
+                {allSessions.length > 2 && (
+                  <button onClick={() => navigate('/profile?section=history')} className="text-xs font-semibold mt-1" style={{ color: 'var(--accent-deep)' }}>
+                    View all ({allSessions.length}) →
                   </button>
                 )}
               </div>
@@ -1011,25 +954,29 @@ export default function MySpace() {
             </motion.section>
           ) : (
             <motion.section key="journal" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="rounded-[22px] p-8 flex flex-col backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', boxShadow: '0 20px 50px -30px rgba(80,50,10,0.3)' }}>
-              <div className="flex justify-end mb-2">
-                <button onClick={() => setShowHistory(true)} className="flex items-center gap-1.5 px-3.5 py-2 rounded-full text-[12px] font-medium cursor-pointer"
-                  style={{ border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}>
-                  <ClockIcon /> History
+              className="rounded-[22px] p-8 flex flex-col backdrop-blur-md w-full max-w-2xl mx-auto flex-1" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', boxShadow: '0 20px 50px -30px rgba(80,50,10,0.3)' }}>
+              <div className="flex justify-end gap-2 mb-2">
+                <button onClick={() => setResponding(true)} className="flex items-center gap-1.5 px-3.5 py-2 rounded-full text-[12.5px] font-semibold cursor-pointer"
+                  style={{ border: '1px solid var(--card-border)', background: 'var(--surface)', color: 'var(--text)' }}>
+                  💬 Resume chatting
+                </button>
+                <button onClick={() => setShowHistory(true)} className="flex items-center gap-1.5 px-3.5 py-2 rounded-full text-[12.5px] font-semibold cursor-pointer"
+                  style={{ border: '1px solid var(--card-border)', background: 'var(--surface)', color: 'var(--text)' }}>
+                  🕰️ History
                 </button>
               </div>
-              <div className="flex items-end justify-between mb-6 flex-wrap gap-3">
+              <div className="flex items-end justify-between mb-5 flex-wrap gap-3">
                 <div>
-                  <div className="text-[11px] font-semibold tracking-[1.4px] uppercase mb-1.5" style={{ color: 'var(--text-faint)' }}>Journal</div>
-                  <div className="font-medium text-[22px]" style={{ fontFamily: 'var(--font-display)', color: 'var(--text)' }}>
-                    {new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}
+                  <div className="text-[11.5px] font-bold tracking-[1.4px] uppercase mb-1.5" style={{ color: 'var(--accent-deep)' }}>Journal</div>
+                  <div className="italic font-semibold text-2xl" style={{ fontFamily: 'var(--font-display)', color: 'var(--accent-deep)' }}>
+                    {new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
                   </div>
                 </div>
-                <div className="flex gap-1.5 p-1 rounded-full" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
-                  {[{ key: 'write', label: 'Write', Icon: WriteIcon }, { key: 'draw', label: 'Draw', Icon: CanvasIcon }, { key: 'voice', label: 'Voice', Icon: MicIcon }].map((t) => (
-                    <button key={t.key} onClick={() => setJournalTab(t.key)} className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12px] font-medium transition-colors"
-                      style={journalTab === t.key ? { background: 'var(--card-bg)', color: 'var(--accent-deep)', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' } : { color: 'var(--text-faint)' }}>
-                      <t.Icon /> {t.label}
+                <div className="flex gap-2">
+                  {[{ key: 'write', label: '✍️ Write' }, { key: 'draw', label: '🎨 Draw' }, { key: 'voice', label: '🎙️ Voice' }].map((t) => (
+                    <button key={t.key} onClick={() => setJournalTab(t.key)} className="px-3.5 py-2 rounded-full text-[12.5px] font-semibold"
+                      style={journalTab === t.key ? { background: 'var(--ink)', color: 'var(--ink-text)' } : { border: '1px solid var(--card-border)', background: 'var(--surface)', color: 'var(--text)' }}>
+                      {t.label}
                     </button>
                   ))}
                 </div>
@@ -1050,7 +997,6 @@ export default function MySpace() {
                       style={{ background: 'var(--ink)', color: 'var(--ink-text)', opacity: journal.trim() ? 1 : 0.4 }}>
                       Save entry
                     </button>
-                    <button onClick={() => setResponding(true)} className="text-[13.5px] font-semibold" style={{ color: 'var(--accent-deep)' }}>Explore Features</button>
                   </div>
                 </div>
               )}
