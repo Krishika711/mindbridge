@@ -38,6 +38,13 @@ export function MoodProvider({ children }) {
   const [hopeTokens, setHopeTokens] = useState(SEED_HOPE_TOKENS);
 
   useEffect(() => {
+    // Google Sign-In redirect lands here with #access_token=...&refresh_token=...
+    // Supabase reads this into the session automatically — this just cleans the
+    // visible URL/history afterward, the token itself was never sent to any server.
+    if (window.location.hash.includes('access_token')) {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       setAuthLoading(false);
