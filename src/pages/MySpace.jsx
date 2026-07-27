@@ -794,7 +794,7 @@ export default function MySpace() {
   };
 
   const deleteSession = async (sessionId) => {
-    if (!window.confirm('Are you sure you want to delete this chat? It cannot be undone.')) return;
+    if (!window.confirm('Once deleted, this chat will be gone forever.')) return;
     if (sessionId === activeSessionId) startNewChat();
     setAllSessions((s) => s.filter((x) => x.sessionId !== sessionId));
     const { error } = await supabase.from('messages').delete().eq('user_id', session.user.id).eq('session_id', sessionId);
