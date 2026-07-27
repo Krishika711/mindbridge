@@ -89,15 +89,22 @@ function formatDateLabel(iso) {
 const GREETING = { from: 'wisp', text: "Hello, I'm Wisp. How are you feeling today?", id: null, created_at: null, image: null };
 
 const FEATURES = [
-  { key: 'hope-vault', label: 'Hope Vault', path: '/hope-vault', icon: '💛' },
-  { key: 'safe-circle', label: 'Safe Circle', path: '/safe-circle', icon: '🤝' },
-  { key: 'calm-space', label: 'Calm Space', path: '/calm-space', icon: '🌙' },
+  { key: 'hope-vault', label: 'Hope Vault', path: '/hope-vault' },
+  { key: 'safe-circle', label: 'Safe Circle', path: '/safe-circle' },
+  { key: 'calm-space', label: 'Calm Space', path: '/calm-space' },
 ];
 
+function FeatureIcon({ type }) {
+  const common = { viewBox: '0 0 24 24', width: 15, height: 15, fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round' };
+  if (type === 'hope-vault') return <svg {...common}><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z" /></svg>;
+  if (type === 'safe-circle') return <svg {...common}><path d="M12 2 4 5v6c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V5z" /></svg>;
+  return <svg {...common}><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z" /></svg>;
+}
+
 const TOOL_TABS = [
-  { key: 'write', label: '✍️' },
-  { key: 'draw', label: '🎨' },
-  { key: 'voice', label: '🎙️' },
+  { key: 'write', type: 'text' },
+  { key: 'draw', type: 'drawing' },
+  { key: 'voice', type: 'voice' },
 ];
 
 function PhotoRow({ small = false, photos, onAdd, onRemove }) {
@@ -130,10 +137,13 @@ function PhotoRow({ small = false, photos, onAdd, onRemove }) {
 
 function GuestLockedPane({ label, onUnlock }) {
   return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-3 rounded-2xl text-center p-8" style={{ background: 'var(--surface)', border: '1px dashed var(--card-border)' }}>
-      <div className="text-2xl">🔒</div>
-      <p className="text-sm max-w-xs" style={{ color: 'var(--text-soft)' }}>{label}</p>
-      <button onClick={onUnlock} className="px-5 py-2 rounded-full text-[13px] font-semibold" style={{ background: 'var(--ink)', color: 'var(--ink-text)' }}>Sign In</button>
+    <div className="flex-1 flex flex-col items-center justify-center gap-3.5 rounded-2xl text-center p-8" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
+      <svg viewBox="0 0 24 24" width={20} height={20} fill="none" stroke="var(--text-faint)" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+        <rect x="5" y="11" width="14" height="9" rx="2" />
+        <path d="M8 11V7.5a4 4 0 0 1 8 0V11" />
+      </svg>
+      <p className="text-[13px] max-w-xs leading-relaxed" style={{ color: 'var(--text-faint)' }}>{label}</p>
+      <button onClick={onUnlock} className="px-5 py-2 rounded-full text-[12.5px] font-medium" style={{ border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}>Sign In</button>
     </div>
   );
 }
@@ -182,7 +192,7 @@ function ChatHistoryItem({ item, active, onOpen, onDelete, onRename }) {
 
 // ---------- Quiet Mode History (Written / Drawings / Voice / Photos) ----------
 
-function JournalWrittenCard({ entry, onUpdate }) {
+function JournalWrittenCard({ entry, onUpdate, onDelete }) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState(entry.title || '');
   const [text, setText] = useState(entry.text_content || '');
@@ -202,14 +212,24 @@ function JournalWrittenCard({ entry, onUpdate }) {
   };
 
   return (
-    <div className="rounded-2xl p-5" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
+    <div className="rounded-2xl p-5 relative" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
+      <button
+        onClick={() => { if (window.confirm('Delete this entry? This can\u2019t be undone.')) onDelete(entry.id); }}
+        className="absolute right-4 top-4 w-6 h-6 rounded-full flex items-center justify-center"
+        style={{ color: 'var(--text-faint)' }}
+        title="Delete entry"
+      >
+        <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 7h16M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2m2 0-.8 12.1a2 2 0 0 1-2 1.9H8.8a2 2 0 0 1-2-1.9L6 7" />
+        </svg>
+      </button>
       <input
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         onBlur={commitTitle}
         onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
         placeholder="Untitled entry"
-        className="text-sm font-semibold bg-transparent outline-none border-none w-full mb-2"
+        className="text-sm font-semibold bg-transparent outline-none border-none w-full mb-2 pr-8"
         style={{ color: 'var(--accent-deep)' }}
       />
 
@@ -247,7 +267,7 @@ function JournalWrittenCard({ entry, onUpdate }) {
   );
 }
 
-function VoiceRow({ entry, onUpdate }) {
+function VoiceRow({ entry, onUpdate, onDelete }) {
   const [title, setTitle] = useState(entry.title || '');
 
   const commit = () => {
@@ -256,14 +276,24 @@ function VoiceRow({ entry, onUpdate }) {
   };
 
   return (
-    <div className="rounded-2xl p-4 flex flex-col gap-2" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
+    <div className="rounded-2xl p-4 flex flex-col gap-2 relative" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
+      <button
+        onClick={() => { if (window.confirm('Delete this voice note? This can\u2019t be undone.')) onDelete(entry.id); }}
+        className="absolute right-3 top-3 w-6 h-6 rounded-full flex items-center justify-center"
+        style={{ color: 'var(--text-faint)' }}
+        title="Delete"
+      >
+        <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 7h16M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2m2 0-.8 12.1a2 2 0 0 1-2 1.9H8.8a2 2 0 0 1-2-1.9L6 7" />
+        </svg>
+      </button>
       <input
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
         placeholder="Untitled voice note"
-        className="text-sm font-semibold bg-transparent outline-none border-none"
+        className="text-sm font-semibold bg-transparent outline-none border-none pr-8"
         style={{ color: 'var(--text)' }}
       />
       {entry.mediaUrl ? (
@@ -298,7 +328,7 @@ function JournalMediaThumb({ entry, onOpen }) {
   );
 }
 
-function JournalLightbox({ entry, onClose, onUpdate }) {
+function JournalLightbox({ entry, onClose, onUpdate, onDelete }) {
   const [title, setTitle] = useState(entry.title || '');
   const [saving, setSaving] = useState(false);
 
@@ -306,6 +336,13 @@ function JournalLightbox({ entry, onClose, onUpdate }) {
     setSaving(true);
     await onUpdate(entry.id, { title: title.trim() || null });
     setSaving(false);
+  };
+
+  const remove = () => {
+    if (window.confirm('Delete this? This can\u2019t be undone.')) {
+      onDelete(entry.id);
+      onClose();
+    }
   };
 
   return (
@@ -328,10 +365,13 @@ function JournalLightbox({ entry, onClose, onUpdate }) {
             style={{ color: 'var(--text)' }}
           />
           <div className="flex items-center justify-between">
-            <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{entry.date}</div>
-            <button onClick={save} disabled={saving} className="text-xs font-semibold px-3.5 py-1.5 rounded-full" style={{ border: '1px solid var(--card-border)', color: 'var(--text-soft)', opacity: saving ? 0.6 : 1 }}>
-              {saving ? 'Saving…' : 'Save name'}
-            </button>
+            <button onClick={remove} className="text-xs font-medium" style={{ color: 'var(--text-faint)' }}>Delete</button>
+            <div className="flex items-center gap-2">
+              <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{entry.date}</div>
+              <button onClick={save} disabled={saving} className="text-xs font-semibold px-3.5 py-1.5 rounded-full" style={{ border: '1px solid var(--card-border)', color: 'var(--text-soft)', opacity: saving ? 0.6 : 1 }}>
+                {saving ? 'Saving…' : 'Save name'}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -354,7 +394,7 @@ const HISTORY_CATEGORIES = [
   { key: 'photo', label: 'Photos', hint: 'Snapshots you can watch back — edit the name anytime.' },
 ];
 
-function HistoryOverlay({ entries, loading, onClose, onUpdate }) {
+function HistoryOverlay({ entries, loading, onClose, onUpdate, onDelete }) {
   const [category, setCategory] = useState('text');
   const [lightboxEntry, setLightboxEntry] = useState(null);
 
@@ -407,13 +447,13 @@ function HistoryOverlay({ entries, loading, onClose, onUpdate }) {
 
             {!loading && category === 'text' && active.items.length > 0 && (
               <div className="flex flex-col gap-3">
-                {active.items.map((e) => <JournalWrittenCard key={e.id} entry={e} onUpdate={onUpdate} />)}
+                {active.items.map((e) => <JournalWrittenCard key={e.id} entry={e} onUpdate={onUpdate} onDelete={onDelete} />)}
               </div>
             )}
 
             {!loading && category === 'voice' && active.items.length > 0 && (
               <div className="flex flex-col gap-3">
-                {active.items.map((e) => <VoiceRow key={e.id} entry={e} onUpdate={onUpdate} />)}
+                {active.items.map((e) => <VoiceRow key={e.id} entry={e} onUpdate={onUpdate} onDelete={onDelete} />)}
               </div>
             )}
 
@@ -433,6 +473,7 @@ function HistoryOverlay({ entries, loading, onClose, onUpdate }) {
           entry={lightboxEntry}
           onClose={() => setLightboxEntry(null)}
           onUpdate={async (id, title) => { await onUpdate(id, title); setLightboxEntry((cur) => (cur ? { ...cur, text_content: title } : cur)); }}
+          onDelete={onDelete}
         />
       )}
     </div>
@@ -595,7 +636,7 @@ export default function MySpace() {
           if (signErr) console.error('journal media signed url failed:', signErr.message);
           else mediaUrl = signed.signedUrl;
         }
-        return { id: e.id, type: e.type, title: e.title, text_content: e.text_content, mediaUrl, date: formatDateLabel(e.created_at) };
+        return { id: e.id, type: e.type, title: e.title, text_content: e.text_content, media_path: e.media_path, mediaUrl, date: formatDateLabel(e.created_at) };
       })
     );
     setJournalEntries(resolved);
@@ -617,6 +658,19 @@ export default function MySpace() {
     const { error } = await supabase.from('journal_entries').update(fields).eq('id', id);
     if (error) { console.error('journal entry update failed:', error.message); return; }
     setJournalEntries((entries) => entries.map((e) => (e.id === id ? { ...e, ...fields } : e)));
+  };
+
+  const deleteJournalEntry = async (id) => {
+    if (!session) return;
+    const entry = journalEntries.find((e) => e.id === id);
+    setJournalEntries((entries) => entries.filter((e) => e.id !== id));
+    if (editingEntryId === id) { setEditingEntryId(null); setJournal(''); }
+    if (entry?.media_path) {
+      const { error: storageErr } = await supabase.storage.from('media').remove([entry.media_path]);
+      if (storageErr) console.error('journal media delete failed:', storageErr.message);
+    }
+    const { error } = await supabase.from('journal_entries').delete().eq('id', id);
+    if (error) console.error('journal entry delete failed:', error.message);
   };
 
   const saveWrittenEntry = () => {
@@ -913,9 +967,9 @@ export default function MySpace() {
 
             <div className="flex gap-2 mt-3">
               {TOOL_TABS.map((t) => (
-                <button key={t.key} onClick={() => toggleTool(t.key)} className="px-3 py-1.5 rounded-full text-[12px] font-semibold"
+                <button key={t.key} onClick={() => toggleTool(t.key)} className="w-9 h-9 rounded-full flex items-center justify-center"
                   style={openTool === t.key ? { background: 'var(--ink)', color: 'var(--ink-text)' } : { border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}>
-                  {t.label}
+                  <CategoryIcon type={t.type} />
                 </button>
               ))}
             </div>
@@ -983,9 +1037,9 @@ export default function MySpace() {
                 <div className="text-[11.5px] font-bold tracking-[1.4px] uppercase mb-4" style={{ color: 'var(--accent-deep)' }}>Explore More Features</div>
                 <div className="grid grid-cols-2 gap-2.5">
                   {FEATURES.map((f) => (
-                    <button key={f.key} onClick={() => navigate(f.path)} className="flex items-center gap-2.5 p-3.5 rounded-xl text-[13.5px] font-semibold cursor-pointer transition-all hover:-translate-y-0.5"
+                    <button key={f.key} onClick={() => navigate(f.path)} className="flex items-center gap-2.5 p-3.5 rounded-xl text-[13.5px] font-medium cursor-pointer transition-all hover:-translate-y-0.5"
                       style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)' }}>
-                      <span>{f.icon}</span>{f.label}<span className="ml-auto opacity-40">›</span>
+                      <span style={{ color: 'var(--accent-deep)' }}><FeatureIcon type={f.key} /></span>{f.label}<span className="ml-auto opacity-40">›</span>
                     </button>
                   ))}
                 </div>
@@ -1010,19 +1064,30 @@ export default function MySpace() {
                     <div className="text-xs px-4 py-4" style={{ color: 'var(--text-faint)' }}>No entries yet.</div>
                   )}
                   {journalEntries.filter((e) => e.type === 'text').map((e) => (
-                    <button
-                      key={e.id}
-                      onClick={() => selectJournalEntry(e)}
-                      className="w-full text-left px-4 py-3 block"
-                      style={{ background: editingEntryId === e.id ? 'var(--surface-strong)' : 'transparent', borderBottom: '1px solid var(--card-border)' }}
-                    >
-                      <div className="text-[13.5px] font-semibold truncate" style={{ color: 'var(--text)' }}>
-                        {e.title || (e.text_content ? e.text_content.slice(0, 28) : 'New Entry')}
-                      </div>
-                      <div className="text-[11.5px] mt-0.5 truncate" style={{ color: 'var(--text-faint)' }}>
-                        {e.date}{e.text_content ? ` — ${e.text_content.slice(0, 34)}` : ''}
-                      </div>
-                    </button>
+                    <div key={e.id} className="group relative" style={{ borderBottom: '1px solid var(--card-border)' }}>
+                      <button
+                        onClick={() => selectJournalEntry(e)}
+                        className="w-full text-left px-4 py-3 pr-9 block"
+                        style={{ background: editingEntryId === e.id ? 'var(--surface-strong)' : 'transparent' }}
+                      >
+                        <div className="text-[13.5px] font-semibold truncate" style={{ color: 'var(--text)' }}>
+                          {e.title || (e.text_content ? e.text_content.slice(0, 28) : 'New Entry')}
+                        </div>
+                        <div className="text-[11.5px] mt-0.5 truncate" style={{ color: 'var(--text-faint)' }}>
+                          {e.date}{e.text_content ? ` — ${e.text_content.slice(0, 34)}` : ''}
+                        </div>
+                      </button>
+                      <button
+                        onClick={() => { if (window.confirm('Delete this entry? This can\u2019t be undone.')) deleteJournalEntry(e.id); }}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        style={{ color: 'var(--text-faint)' }}
+                        title="Delete entry"
+                      >
+                        <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M4 7h16M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2m2 0-.8 12.1a2 2 0 0 1-2 1.9H8.8a2 2 0 0 1-2-1.9L6 7" />
+                        </svg>
+                      </button>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -1082,7 +1147,7 @@ export default function MySpace() {
       <StormyAlert open={showStormy} onClose={() => setShowStormy(false)} />
       <GuestSignInPrompt open={showGuestGate} onClose={() => setShowGuestGate(false)} />
       {showHistory && (
-        <HistoryOverlay entries={journalEntries} loading={entriesLoading} onClose={() => setShowHistory(false)} onUpdate={updateJournalEntry} />
+        <HistoryOverlay entries={journalEntries} loading={entriesLoading} onClose={() => setShowHistory(false)} onUpdate={updateJournalEntry} onDelete={deleteJournalEntry} />
       )}
     </div>
   );
