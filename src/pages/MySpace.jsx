@@ -122,7 +122,7 @@ function PhotoRow({ small = false, photos, onAdd, onRemove }) {
         </div>
       ))}
       <input id={inputId} type="file" accept="image/*" multiple onChange={handleFiles} className="hidden" />
-      <label htmlFor={inputId} className={`${size} rounded-xl flex items-center justify-center cursor-pointer text-xl flex-shrink-0`}
+      <label htmlFor={inputId} className={`${size} rounded-xl flex items-center justify-center cursor-pointer text-xl shrink-0`}
         style={{ border: '1.5px dashed var(--card-border)', color: 'var(--accent-deep)' }}>+</label>
     </div>
   );
@@ -172,7 +172,7 @@ function ChatHistoryItem({ item, active, onOpen, onDelete, onRename }) {
           <div className="text-sm font-medium truncate">{item.title || item.snippet}</div>
         )}
       </div>
-      <div className="flex items-center gap-2.5 flex-shrink-0">
+      <div className="flex items-center gap-2.5 shrink-0">
         <button onClick={(e) => { e.stopPropagation(); setEditing(true); }} className="text-xs opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: 'var(--accent-deep)' }} title="Rename">✎</button>
         <button onClick={(e) => { e.stopPropagation(); onDelete(item.sessionId); }} className="text-xs opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: '#C0523A' }}>Delete</button>
       </div>
@@ -219,7 +219,7 @@ function JournalWrittenCard({ entry, onUpdate }) {
             autoFocus
             value={text}
             onChange={(e) => setText(e.target.value)}
-            className="w-full min-h-[90px] resize-none outline-none text-[15px] leading-relaxed bg-transparent mb-3"
+            className="w-full min-h-22.5 resize-none outline-none text-[15px] leading-relaxed bg-transparent mb-3"
             style={{ fontFamily: 'var(--font-display)', color: 'var(--text)' }}
           />
           <div className="flex gap-2">
@@ -276,20 +276,24 @@ function VoiceRow({ entry, onUpdate }) {
   );
 }
 
-function JournalMediaThumb({ entry, onOpen, icon }) {
+function JournalMediaThumb({ entry, onOpen }) {
   return (
     <button
       onClick={() => onOpen(entry)}
-      className="bg-white p-2 pb-6 text-left"
-      style={{ transform: 'rotate(-1deg)', boxShadow: '0 10px 22px -10px rgba(0,0,0,0.3)' }}
+      className="rounded-xl overflow-hidden text-left"
+      style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}
     >
-      <div className="w-full aspect-square bg-cover bg-center flex items-center justify-center" style={{ backgroundImage: entry.mediaUrl ? `url(${entry.mediaUrl})` : 'none', background: entry.mediaUrl ? undefined : '#eee' }}>
-        {!entry.mediaUrl && <span className="text-2xl">{icon}</span>}
+      <div className="w-full aspect-square bg-cover bg-center flex items-center justify-center" style={{ backgroundImage: entry.mediaUrl ? `url(${entry.mediaUrl})` : 'none', background: entry.mediaUrl ? undefined : 'var(--surface-strong)' }}>
+        {!entry.mediaUrl && (
+          <svg viewBox="0 0 24 24" width={18} height={18} fill="none" stroke="var(--text-faint)" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="5" width="18" height="14" rx="2" /><circle cx="8.5" cy="10" r="1.4" /><path d="M21 16l-5-4-9 7" />
+          </svg>
+        )}
       </div>
       {entry.title && (
-        <div className="text-center mt-1.5 text-[13px] font-semibold truncate px-1" style={{ color: '#4a3c22' }}>{entry.title}</div>
+        <div className="px-2.5 pt-2 text-[12px] font-medium truncate" style={{ color: 'var(--text)' }}>{entry.title}</div>
       )}
-      <div className="text-center mt-1 text-sm" style={{ fontFamily: 'var(--font-hand, cursive)', color: '#4a3c22' }}>{entry.date}</div>
+      <div className="px-2.5 pb-2 pt-0.5 text-[11px]" style={{ color: 'var(--text-faint)' }}>{entry.date}</div>
     </button>
   );
 }
@@ -305,39 +309,49 @@ function JournalLightbox({ entry, onClose, onUpdate }) {
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-5" style={{ background: 'rgba(0,0,0,0.55)' }} onClick={onClose}>
+    <div className="fixed inset-0 z-60 flex items-center justify-center p-5" style={{ background: 'rgba(0,0,0,0.6)' }} onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
-        className="bg-white p-3 pb-6 relative"
-        style={{ width: 'min(480px, 92vw)', boxShadow: '0 30px 70px -20px rgba(0,0,0,0.5)' }}
+        className="rounded-2xl overflow-hidden relative"
+        style={{ width: 'min(480px, 92vw)', background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}
       >
-        <button onClick={onClose} className="absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center text-sm z-10" style={{ background: 'rgba(0,0,0,0.06)', color: '#4a3c22' }}>✕</button>
+        <button onClick={onClose} className="absolute top-3 right-3 w-7 h-7 rounded-full flex items-center justify-center text-sm z-10" style={{ background: 'var(--surface-strong)', color: 'var(--text-soft)' }}>✕</button>
         {entry.mediaUrl && (
-          <img src={entry.mediaUrl} alt="" className="w-full object-contain" style={{ maxHeight: '70vh' }} />
+          <img src={entry.mediaUrl} alt="" className="w-full object-contain" style={{ maxHeight: '65vh', background: 'var(--surface)' }} />
         )}
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Give this a name…"
-          className="w-full text-center mt-3 text-lg outline-none border-b bg-transparent"
-          style={{ fontFamily: 'var(--font-hand, cursive)', color: '#4a3c22', borderColor: 'rgba(0,0,0,0.15)' }}
-        />
-        <div className="flex items-center justify-between mt-3">
-          <div className="text-xs" style={{ color: '#8a7a55' }}>{entry.date}</div>
-          <button onClick={save} disabled={saving} className="text-xs font-semibold px-3 py-1.5 rounded-full" style={{ background: '#3a3020', color: '#F6EFD9', opacity: saving ? 0.6 : 1 }}>
-            {saving ? 'Saving…' : 'Save name'}
-          </button>
+        <div className="p-5">
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Give this a name…"
+            className="w-full outline-none border-none bg-transparent text-[15px] font-medium mb-3"
+            style={{ color: 'var(--text)' }}
+          />
+          <div className="flex items-center justify-between">
+            <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{entry.date}</div>
+            <button onClick={save} disabled={saving} className="text-xs font-semibold px-3.5 py-1.5 rounded-full" style={{ border: '1px solid var(--card-border)', color: 'var(--text-soft)', opacity: saving ? 0.6 : 1 }}>
+              {saving ? 'Saving…' : 'Save name'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
+function CategoryIcon({ type }) {
+  const common = { viewBox: '0 0 24 24', width: 14, height: 14, fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round' };
+  if (type === 'text') return <svg {...common}><path d="M4 6h16M4 12h10M4 18h13" /></svg>;
+  if (type === 'drawing') return <svg {...common}><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="8.5" cy="8.5" r="1.4" /><path d="M21 15.5 16 10l-9 9" /></svg>;
+  if (type === 'voice') return <svg {...common}><rect x="9" y="1.5" width="6" height="12" rx="3" /><path d="M5 10.5v1a7 7 0 0 0 14 0v-1" /><line x1="12" y1="18.5" x2="12" y2="22" /></svg>;
+  return <svg {...common}><rect x="3" y="5" width="18" height="14" rx="2" /><circle cx="8.5" cy="10" r="1.4" /><path d="M21 16l-5-4-9 7" /></svg>;
+}
+
 const HISTORY_CATEGORIES = [
-  { key: 'text', label: 'Written', icon: '✍️', hint: 'Journal entries you can read — tap one to edit.' },
-  { key: 'drawing', label: 'Drawings', icon: '🎨', hint: "Sketches from other days — today's stay in the Draw tab." },
-  { key: 'voice', label: 'Voice Notes', icon: '🎙️', hint: 'Recordings you can listen to — edit the name anytime.' },
-  { key: 'photo', label: 'Photos', icon: '📷', hint: 'Snapshots you can watch back — edit the name anytime.' },
+  { key: 'text', label: 'Written', hint: 'Journal entries you can read — tap one to edit.' },
+  { key: 'drawing', label: 'Drawings', hint: "Sketches from other days — today's stay in the Draw tab." },
+  { key: 'voice', label: 'Voice Notes', hint: 'Recordings you can listen to — edit the name anytime.' },
+  { key: 'photo', label: 'Photos', hint: 'Snapshots you can watch back — edit the name anytime.' },
 ];
 
 function HistoryOverlay({ entries, loading, onClose, onUpdate }) {
@@ -351,70 +365,76 @@ function HistoryOverlay({ entries, loading, onClose, onUpdate }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-5" style={{ background: 'rgba(0,0,0,0.5)' }} onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-xl max-h-[85vh] overflow-y-auto rounded-3xl p-6"
-        style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', backdropFilter: 'blur(16px)' }}
+        className="w-full max-w-2xl max-h-[85vh] flex flex-col md:flex-row rounded-2xl overflow-hidden"
+        style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}
       >
-        <div className="flex items-center justify-between mb-1">
-          <div className="text-[11px] font-semibold tracking-[1.4px] uppercase" style={{ color: 'var(--accent-deep)' }}>History</div>
-          <button onClick={onClose} className="text-sm" style={{ color: 'var(--text-faint)' }}>✕</button>
+        {/* Left: category rail — mirrors the journal editor's sidebar */}
+        <div className="w-full md:w-52 shrink-0 flex flex-col overflow-hidden border-b md:border-b-0 md:border-r" style={{ background: 'var(--surface)', borderColor: 'var(--card-border)' }}>
+          <div className="hidden md:flex items-center justify-between px-4 py-3.5 shrink-0" style={{ borderBottom: '1px solid var(--card-border)' }}>
+            <div className="text-[15px] font-semibold" style={{ color: 'var(--text)' }}>History</div>
+          </div>
+          <div className="flex md:flex-col p-2 gap-1 overflow-x-auto md:overflow-visible">
+            {grouped.map((c) => (
+              <button
+                key={c.key}
+                onClick={() => setCategory(c.key)}
+                className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13.5px] font-medium text-left whitespace-nowrap shrink-0"
+                style={category === c.key ? { background: 'var(--card-bg)', color: 'var(--accent-deep)', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' } : { color: 'var(--text-soft)' }}
+              >
+                <CategoryIcon type={c.key} />
+                {c.label}
+                <span className="md:ml-auto text-[11px]" style={{ color: 'var(--text-faint)' }}>{c.items.length}</span>
+              </button>
+            ))}
+          </div>
         </div>
-        <p className="text-xs mb-4" style={{ color: 'var(--text-faint)' }}>
-          Everything you've saved in Quiet Mode, sorted so you can read, watch, and listen back.
-        </p>
 
-        <div className="flex gap-2 mb-5 flex-wrap">
-          {grouped.map((c) => (
-            <button
-              key={c.key}
-              onClick={() => setCategory(c.key)}
-              className="px-4 py-2 rounded-full text-sm font-medium flex items-center gap-1.5"
-              style={category === c.key ? { background: 'var(--ink)', color: 'var(--ink-text)' } : { border: '1px solid var(--card-border)', color: 'var(--text)' }}
-            >
-              <span>{c.icon}</span> {c.label} ({c.items.length})
-            </button>
-          ))}
-        </div>
+        {/* Right: entries for the selected category */}
+        <div className="flex-1 flex flex-col min-h-0">
+          <div className="flex items-center justify-between px-5 py-3.5 shrink-0" style={{ borderBottom: '1px solid var(--card-border)' }}>
+            <div className="text-[15px] font-semibold md:hidden" style={{ color: 'var(--text)' }}>History</div>
+            <p className="text-xs hidden md:block" style={{ color: 'var(--text-faint)' }}>{active.hint}</p>
+            <button onClick={onClose} className="w-6 h-6 rounded-full flex items-center justify-center text-xs shrink-0" style={{ color: 'var(--text-faint)' }}>✕</button>
+          </div>
+          <p className="text-xs px-5 pt-3 md:hidden" style={{ color: 'var(--text-faint)' }}>{active.hint}</p>
 
-        {loading && <p className="text-sm" style={{ color: 'var(--text-faint)' }}>Loading…</p>}
+          <div className="flex-1 overflow-y-auto p-5">
+            {loading && <p className="text-sm" style={{ color: 'var(--text-faint)' }}>Loading…</p>}
 
-        {!loading && (
-          <>
-            <p className="text-xs mb-3" style={{ color: 'var(--text-faint)' }}>{active.hint}</p>
-
-            {active.items.length === 0 && (
+            {!loading && active.items.length === 0 && (
               <p className="text-sm" style={{ color: 'var(--text-faint)' }}>Nothing saved here yet.</p>
             )}
 
-            {category === 'text' && active.items.length > 0 && (
+            {!loading && category === 'text' && active.items.length > 0 && (
               <div className="flex flex-col gap-3">
                 {active.items.map((e) => <JournalWrittenCard key={e.id} entry={e} onUpdate={onUpdate} />)}
               </div>
             )}
 
-            {category === 'voice' && active.items.length > 0 && (
+            {!loading && category === 'voice' && active.items.length > 0 && (
               <div className="flex flex-col gap-3">
                 {active.items.map((e) => <VoiceRow key={e.id} entry={e} onUpdate={onUpdate} />)}
               </div>
             )}
 
-            {(category === 'photo' || category === 'drawing') && active.items.length > 0 && (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+            {!loading && (category === 'photo' || category === 'drawing') && active.items.length > 0 && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {active.items.map((e) => (
-                  <JournalMediaThumb key={e.id} entry={e} onOpen={setLightboxEntry} icon={category === 'drawing' ? '🎨' : '📷'} />
+                  <JournalMediaThumb key={e.id} entry={e} onOpen={setLightboxEntry} />
                 ))}
               </div>
             )}
-          </>
-        )}
-
-        {lightboxEntry && (
-          <JournalLightbox
-            entry={lightboxEntry}
-            onClose={() => setLightboxEntry(null)}
-            onUpdate={async (id, title) => { await onUpdate(id, title); setLightboxEntry((cur) => (cur ? { ...cur, text_content: title } : cur)); }}
-          />
-        )}
+          </div>
+        </div>
       </div>
+
+      {lightboxEntry && (
+        <JournalLightbox
+          entry={lightboxEntry}
+          onClose={() => setLightboxEntry(null)}
+          onUpdate={async (id, title) => { await onUpdate(id, title); setLightboxEntry((cur) => (cur ? { ...cur, text_content: title } : cur)); }}
+        />
+      )}
     </div>
   );
 }
@@ -1010,18 +1030,22 @@ export default function MySpace() {
               <div className="flex-1 flex flex-col p-8" style={{ background: 'var(--card-bg)' }}>
                 <div className="flex items-center justify-between mb-1">
                   <div className="flex items-center gap-1">
-                    {[{ key: 'write', icon: '✎' }, { key: 'draw', icon: '🎨' }, { key: 'voice', icon: '🎙️' }].map((t) => (
+                    {[{ key: 'write', type: 'text' }, { key: 'draw', type: 'drawing' }, { key: 'voice', type: 'voice' }].map((t) => (
                       <button key={t.key} onClick={() => setJournalTab(t.key)}
-                        className="w-8 h-8 rounded-full flex items-center justify-center text-[14px] transition-colors"
+                        className="w-8 h-8 rounded-full flex items-center justify-center transition-colors"
                         style={journalTab === t.key ? { background: 'var(--surface-strong)', color: 'var(--accent-deep)' } : { color: 'var(--text-faint)' }}>
-                        {t.icon}
+                        <CategoryIcon type={t.type} />
                       </button>
                     ))}
                     {journalTab === 'write' && <PhotoRow small photos={photos} onAdd={addPhoto} onRemove={removePhoto} />}
                   </div>
                   <div className="flex items-center gap-1">
-                    <button onClick={() => setResponding(true)} className="w-8 h-8 rounded-full flex items-center justify-center text-[14px] transition-colors hover:opacity-70" style={{ color: 'var(--text-soft)' }} title="Resume chatting">💬</button>
-                    <button onClick={() => setShowHistory(true)} className="w-8 h-8 rounded-full flex items-center justify-center text-[14px] transition-colors hover:opacity-70" style={{ color: 'var(--text-soft)' }} title="Full history">🕰️</button>
+                    <button onClick={() => setResponding(true)} className="w-8 h-8 rounded-full flex items-center justify-center transition-colors hover:opacity-70" style={{ color: 'var(--text-soft)' }} title="Resume chatting">
+                      <svg viewBox="0 0 24 24" width={15} height={15} fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+                    </button>
+                    <button onClick={() => setShowHistory(true)} className="w-8 h-8 rounded-full flex items-center justify-center transition-colors hover:opacity-70" style={{ color: 'var(--text-soft)' }} title="Full history">
+                      <svg viewBox="0 0 24 24" width={15} height={15} fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3.2 2" /></svg>
+                    </button>
                   </div>
                 </div>
 
