@@ -1,15 +1,95 @@
 import { useState } from 'react';
 import { MOODS, useMood } from '../../context/MoodContext';
 
+const HELP_SECTIONS = [
+  {
+    title: 'Chat with Wisp',
+    body: "Talk any time, about anything. Wisp isn't a script — it reacts like a companion who's actually listening.",
+    Icon: (p) => <svg {...p}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>,
+  },
+  {
+    title: 'Mood check-in',
+    body: 'Log how you\u2019re feeling in a few seconds. Every check-in feeds your Mood Insights over time.',
+    Icon: (p) => <svg {...p}><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z" /></svg>,
+  },
+  {
+    title: 'Journal \u2014 Quiet Mode',
+    body: 'Pause the chat and write, draw, or record a voice note, just for yourself.',
+    Icon: (p) => <svg {...p}><path d="M4 6h16M4 12h10M4 18h13" /></svg>,
+  },
+  {
+    title: 'Hope Vault',
+    body: 'Save a memory, a photo, a voice note, or a letter \u2014 something to look back on.',
+    Icon: (p) => <svg {...p}><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V7.5a4 4 0 0 1 8 0V11" /></svg>,
+  },
+  {
+    title: 'Mood Insights',
+    body: 'See your week as a spectrum, plus an AI report generated automatically every Monday.',
+    Icon: (p) => <svg {...p}><path d="M4 19V10M10 19V5M16 19v-7M22 19V3" /></svg>,
+  },
+  {
+    title: 'History',
+    body: 'Everything you\u2019ve saved \u2014 written, drawn, recorded, or photographed \u2014 kept in one place.',
+    Icon: (p) => <svg {...p}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3.2 2" /></svg>,
+  },
+  {
+    title: 'SafeCircle',
+    body: 'Choose someone you trust. If things ever get hard, they\u2019re quietly notified so you\u2019re not alone in it.',
+    Icon: (p) => <svg {...p}><path d="M12 2 4 5v6c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V5z" /></svg>,
+  },
+];
+
 export function HelpButton() {
+  const [open, setOpen] = useState(false);
+  const iconProps = { viewBox: '0 0 24 24', width: 16, height: 16, fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round' };
+
   return (
-    <button
-      className="fixed bottom-[22px] right-[22px] z-20 w-[38px] h-[38px] rounded-full backdrop-blur-md cursor-pointer font-semibold"
-      style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', color: 'var(--text)' }}
-      aria-label="Help"
-    >
-      ?
-    </button>
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        className="fixed bottom-5.5 right-5.5 z-20 w-9.5 h-9.5 rounded-full backdrop-blur-md cursor-pointer font-semibold"
+        style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', color: 'var(--text)' }}
+        aria-label="Help"
+      >
+        ?
+      </button>
+
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-5" style={{ background: 'rgba(0,0,0,0.5)' }} onClick={() => setOpen(false)}>
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md max-h-[85vh] overflow-y-auto rounded-2xl p-6"
+            style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <div className="text-[15px] font-semibold" style={{ color: 'var(--text)' }}>About MindBridge+</div>
+              <button onClick={() => setOpen(false)} className="w-6 h-6 rounded-full flex items-center justify-center text-xs shrink-0" style={{ color: 'var(--text-faint)' }}>✕</button>
+            </div>
+            <p className="text-xs mb-5 leading-relaxed" style={{ color: 'var(--text-faint)' }}>
+              A quiet space built for college life — here's what's inside and how to use it.
+            </p>
+
+            <div className="flex flex-col gap-4">
+              {HELP_SECTIONS.map((s) => (
+                <div key={s.title} className="flex gap-3">
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)', color: 'var(--accent-deep)' }}>
+                    <s.Icon {...iconProps} />
+                  </div>
+                  <div>
+                    <div className="text-[13.5px] font-semibold mb-0.5" style={{ color: 'var(--text)' }}>{s.title}</div>
+                    <div className="text-[12.5px] leading-relaxed" style={{ color: 'var(--text-soft)' }}>{s.body}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <p className="text-center text-xs italic mt-6 pt-4" style={{ borderTop: '1px solid var(--card-border)', color: 'var(--text-faint)', fontFamily: 'var(--font-display)' }}>
+              No streaks. No scores. Just a space that's yours.
+            </p>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
