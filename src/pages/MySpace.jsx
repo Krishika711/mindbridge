@@ -794,7 +794,7 @@ export default function MySpace() {
   };
 
   const deleteSession = async (sessionId) => {
-    if (!window.confirm('Are you sure you want to delete this chat? It cannot be undone.')) return;
+    if (!window.confirm('Are you sure you want to delete this chat?')) return;
     if (sessionId === activeSessionId) startNewChat();
     setAllSessions((s) => s.filter((x) => x.sessionId !== sessionId));
     const { error } = await supabase.from('messages').delete().eq('user_id', session.user.id).eq('session_id', sessionId);
@@ -867,7 +867,7 @@ export default function MySpace() {
                 </div>
               ))}
               {thinking && (
-                <div className="self-start px-4 py-3.5 rounded-2xl rounded-bl-sm text-[13.5px]" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}>thinking..</div>
+                <div className="self-start px-4 py-3.5 rounded-2xl rounded-bl-sm text-[13.5px]" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}>thinking...</div>
               )}
               <div ref={threadEndRef} />
             </div>
@@ -954,52 +954,44 @@ export default function MySpace() {
             </motion.section>
           ) : (
             <motion.section key="journal" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="rounded-[22px] p-8 flex flex-col backdrop-blur-md w-full max-w-2xl mx-auto flex-1" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', boxShadow: '0 20px 50px -30px rgba(80,50,10,0.3)' }}>
-              <div className="flex justify-end gap-2 mb-2">
-                <button onClick={() => setResponding(true)} className="flex items-center gap-1.5 px-3.5 py-2 rounded-full text-[12.5px] font-semibold cursor-pointer"
-                  style={{ border: '1px solid var(--card-border)', background: 'var(--surface)', color: 'var(--text)' }}>
-                  💬 Resume chatting
-                </button>
-                <button onClick={() => setShowHistory(true)} className="flex items-center gap-1.5 px-3.5 py-2 rounded-full text-[12.5px] font-semibold cursor-pointer"
-                  style={{ border: '1px solid var(--card-border)', background: 'var(--surface)', color: 'var(--text)' }}>
-                  🕰️ History
-                </button>
-              </div>
-              <div className="flex items-end justify-between mb-5 flex-wrap gap-3">
-                <div>
-                  <div className="text-[11.5px] font-bold tracking-[1.4px] uppercase mb-1.5" style={{ color: 'var(--accent-deep)' }}>Journal</div>
-                  <div className="italic font-semibold text-2xl" style={{ fontFamily: 'var(--font-display)', color: 'var(--accent-deep)' }}>
-                    {new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-                  </div>
+              className="flex flex-col w-full max-w-xl mx-auto flex-1">
+              <div className="flex items-center justify-between mb-6">
+                <div className="text-[13px]" style={{ color: 'var(--text-faint)' }}>
+                  {new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
                 </div>
-                <div className="flex gap-2">
-                  {[{ key: 'write', label: '✍️ Write' }, { key: 'draw', label: '🎨 Draw' }, { key: 'voice', label: '🎙️ Voice' }].map((t) => (
-                    <button key={t.key} onClick={() => setJournalTab(t.key)} className="px-3.5 py-2 rounded-full text-[12.5px] font-semibold"
-                      style={journalTab === t.key ? { background: 'var(--ink)', color: 'var(--ink-text)' } : { border: '1px solid var(--card-border)', background: 'var(--surface)', color: 'var(--text)' }}>
-                      {t.label}
-                    </button>
-                  ))}
+                <div className="flex items-center gap-1">
+                  <button onClick={() => setResponding(true)} className="w-8 h-8 rounded-full flex items-center justify-center text-[15px] transition-colors hover:opacity-70" style={{ color: 'var(--text-soft)' }} title="Resume chatting" aria-label="Resume chatting">💬</button>
+                  <button onClick={() => setShowHistory(true)} className="w-8 h-8 rounded-full flex items-center justify-center text-[15px] transition-colors hover:opacity-70" style={{ color: 'var(--text-soft)' }} title="History" aria-label="History">🕰️</button>
                 </div>
               </div>
+
               <div className="flex-1 min-h-55 flex flex-col">
                 {journalTab === 'write' && (
                   <textarea value={journal} onChange={(e) => { if (guardGuestWrite(e.target.value)) setJournal(e.target.value); }}
-                    placeholder="Start writing… this space is yours. No pressure, no judgment." className="flex-1 resize-none outline-none border-none bg-transparent italic text-xl leading-relaxed min-h-50" style={{ fontFamily: 'var(--font-display)', color: 'var(--text)' }} />
+                    placeholder="Start typing" className="flex-1 resize-none outline-none border-none bg-transparent text-[17px] leading-relaxed min-h-50" style={{ color: 'var(--text)' }} />
                 )}
                 {journalTab === 'draw' && (isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to save your drawings" /> : <DrawCanvas onSaved={(path) => saveJournalEntry('drawing', null, path)} />)}
                 {journalTab === 'voice' && (isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to record voice notes" /> : <VoiceNotes onSaved={(path) => saveJournalEntry('voice', null, path)} />)}
               </div>
-              {journalTab === 'write' && (
-                <div className="flex items-center justify-between mt-5 pt-4 flex-wrap gap-3" style={{ borderTop: '1px solid var(--card-border)' }}>
-                  <PhotoRow small photos={photos} onAdd={addPhoto} onRemove={removePhoto} />
-                  <div className="flex items-center gap-3">
-                    <button onClick={saveWrittenEntry} disabled={!journal.trim()} className="text-[13.5px] font-semibold px-4 py-2 rounded-full"
-                      style={{ background: 'var(--ink)', color: 'var(--ink-text)', opacity: journal.trim() ? 1 : 0.4 }}>
-                      Save entry
+
+              <div className="flex items-center justify-between pt-3 mt-3 flex-wrap gap-2" style={{ borderTop: '1px solid var(--card-border)' }}>
+                <div className="flex items-center gap-1 flex-wrap">
+                  {[{ key: 'write', icon: '✎' }, { key: 'draw', icon: '🎨' }, { key: 'voice', icon: '🎙️' }].map((t) => (
+                    <button key={t.key} onClick={() => setJournalTab(t.key)}
+                      className="w-9 h-9 rounded-full flex items-center justify-center text-[15px] transition-colors"
+                      style={journalTab === t.key ? { background: 'var(--surface-strong)', color: 'var(--accent-deep)' } : { color: 'var(--text-faint)' }}>
+                      {t.icon}
                     </button>
-                  </div>
+                  ))}
+                  {journalTab === 'write' && <PhotoRow small photos={photos} onAdd={addPhoto} onRemove={removePhoto} />}
                 </div>
-              )}
+                {journalTab === 'write' && (
+                  <button onClick={saveWrittenEntry} disabled={!journal.trim()} className="text-[13.5px] font-semibold px-3 py-1.5"
+                    style={{ color: 'var(--accent-deep)', opacity: journal.trim() ? 1 : 0.4 }}>
+                    Save
+                  </button>
+                )}
+              </div>
             </motion.section>
           )}
         </AnimatePresence>
