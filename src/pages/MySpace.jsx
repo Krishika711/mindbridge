@@ -429,6 +429,7 @@ export default function MySpace() {
   const [thread, setThread] = useState([GREETING]);
   const [draft, setDraft] = useState('');
   const [journal, setJournal] = useState('');
+  const [editingEntryId, setEditingEntryId] = useState(null);
   const [showStormy, setShowStormy] = useState(false);
   const [showGuestGate, setShowGuestGate] = useState(false);
   const [photos, setPhotos] = useState([]);
@@ -600,8 +601,25 @@ export default function MySpace() {
   const saveWrittenEntry = () => {
     const text = journal.trim();
     if (!text) return;
-    saveJournalEntry('text', text);
+    if (editingEntryId) {
+      updateJournalEntry(editingEntryId, { text_content: text });
+    } else {
+      saveJournalEntry('text', text);
+    }
     setJournal('');
+    setEditingEntryId(null);
+  };
+
+  const selectJournalEntry = (entry) => {
+    setEditingEntryId(entry.id);
+    setJournal(entry.text_content || '');
+    setJournalTab('write');
+  };
+
+  const startNewJournalEntry = () => {
+    setEditingEntryId(null);
+    setJournal('');
+    setJournalTab('write');
   };
 
   const addPhoto = async (src) => {
@@ -867,7 +885,7 @@ export default function MySpace() {
                 </div>
               ))}
               {thinking && (
-                <div className="self-start px-4 py-3.5 rounded-2xl rounded-bl-sm text-[13.5px]" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}>thinking...</div>
+                <div className="self-start px-4 py-3.5 rounded-2xl rounded-bl-sm text-[13.5px]" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}>thinking..</div>
               )}
               <div ref={threadEndRef} />
             </div>
@@ -954,42 +972,79 @@ export default function MySpace() {
             </motion.section>
           ) : (
             <motion.section key="journal" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="flex flex-col w-full max-w-xl mx-auto flex-1">
-              <div className="flex items-center justify-between mb-6">
-                <div className="text-[13px]" style={{ color: 'var(--text-faint)' }}>
-                  {new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
+              className="flex flex-col md:flex-row w-full flex-1 rounded-2xl overflow-hidden" style={{ border: '1px solid var(--card-border)' }}>
+              {/* Left: entries list — like Notes' middle pane */}
+              <div className="w-full md:w-64 shrink-0 flex flex-col max-h-56 md:max-h-none overflow-hidden border-b md:border-b-0 md:border-r" style={{ background: 'var(--surface)', borderColor: 'var(--card-border)' }}>
+                <div className="flex items-center justify-between px-4 py-3.5 shrink-0" style={{ borderBottom: '1px solid var(--card-border)' }}>
+                  <div>
+                    <div className="text-[15px] font-semibold" style={{ color: 'var(--text)' }}>Journal</div>
+                    <div className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
+                      {journalEntries.filter((e) => e.type === 'text').length} entries
+                    </div>
+                  </div>
+                  <button onClick={startNewJournalEntry} className="w-7 h-7 rounded-full flex items-center justify-center text-lg" style={{ color: 'var(--accent-deep)' }} title="New entry">+</button>
                 </div>
-                <div className="flex items-center gap-1">
-                  <button onClick={() => setResponding(true)} className="w-8 h-8 rounded-full flex items-center justify-center text-[15px] transition-colors hover:opacity-70" style={{ color: 'var(--text-soft)' }} title="Resume chatting" aria-label="Resume chatting">💬</button>
-                  <button onClick={() => setShowHistory(true)} className="w-8 h-8 rounded-full flex items-center justify-center text-[15px] transition-colors hover:opacity-70" style={{ color: 'var(--text-soft)' }} title="History" aria-label="History">🕰️</button>
-                </div>
-              </div>
-
-              <div className="flex-1 min-h-55 flex flex-col">
-                {journalTab === 'write' && (
-                  <textarea value={journal} onChange={(e) => { if (guardGuestWrite(e.target.value)) setJournal(e.target.value); }}
-                    placeholder="Start typing" className="flex-1 resize-none outline-none border-none bg-transparent text-[17px] leading-relaxed min-h-50" style={{ color: 'var(--text)' }} />
-                )}
-                {journalTab === 'draw' && (isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to save your drawings" /> : <DrawCanvas onSaved={(path) => saveJournalEntry('drawing', null, path)} />)}
-                {journalTab === 'voice' && (isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to record voice notes" /> : <VoiceNotes onSaved={(path) => saveJournalEntry('voice', null, path)} />)}
-              </div>
-
-              <div className="flex items-center justify-between pt-3 mt-3 flex-wrap gap-2" style={{ borderTop: '1px solid var(--card-border)' }}>
-                <div className="flex items-center gap-1 flex-wrap">
-                  {[{ key: 'write', icon: '✎' }, { key: 'draw', icon: '🎨' }, { key: 'voice', icon: '🎙️' }].map((t) => (
-                    <button key={t.key} onClick={() => setJournalTab(t.key)}
-                      className="w-9 h-9 rounded-full flex items-center justify-center text-[15px] transition-colors"
-                      style={journalTab === t.key ? { background: 'var(--surface-strong)', color: 'var(--accent-deep)' } : { color: 'var(--text-faint)' }}>
-                      {t.icon}
+                <div className="flex-1 overflow-y-auto">
+                  {journalEntries.filter((e) => e.type === 'text').length === 0 && (
+                    <div className="text-xs px-4 py-4" style={{ color: 'var(--text-faint)' }}>No entries yet.</div>
+                  )}
+                  {journalEntries.filter((e) => e.type === 'text').map((e) => (
+                    <button
+                      key={e.id}
+                      onClick={() => selectJournalEntry(e)}
+                      className="w-full text-left px-4 py-3 block"
+                      style={{ background: editingEntryId === e.id ? 'var(--surface-strong)' : 'transparent', borderBottom: '1px solid var(--card-border)' }}
+                    >
+                      <div className="text-[13.5px] font-semibold truncate" style={{ color: 'var(--text)' }}>
+                        {e.title || (e.text_content ? e.text_content.slice(0, 28) : 'New Entry')}
+                      </div>
+                      <div className="text-[11.5px] mt-0.5 truncate" style={{ color: 'var(--text-faint)' }}>
+                        {e.date}{e.text_content ? ` — ${e.text_content.slice(0, 34)}` : ''}
+                      </div>
                     </button>
                   ))}
-                  {journalTab === 'write' && <PhotoRow small photos={photos} onAdd={addPhoto} onRemove={removePhoto} />}
                 </div>
+              </div>
+
+              {/* Right: editor pane — like Notes' main pane */}
+              <div className="flex-1 flex flex-col p-8" style={{ background: 'var(--card-bg)' }}>
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-1">
+                    {[{ key: 'write', icon: '✎' }, { key: 'draw', icon: '🎨' }, { key: 'voice', icon: '🎙️' }].map((t) => (
+                      <button key={t.key} onClick={() => setJournalTab(t.key)}
+                        className="w-8 h-8 rounded-full flex items-center justify-center text-[14px] transition-colors"
+                        style={journalTab === t.key ? { background: 'var(--surface-strong)', color: 'var(--accent-deep)' } : { color: 'var(--text-faint)' }}>
+                        {t.icon}
+                      </button>
+                    ))}
+                    {journalTab === 'write' && <PhotoRow small photos={photos} onAdd={addPhoto} onRemove={removePhoto} />}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => setResponding(true)} className="w-8 h-8 rounded-full flex items-center justify-center text-[14px] transition-colors hover:opacity-70" style={{ color: 'var(--text-soft)' }} title="Resume chatting">💬</button>
+                    <button onClick={() => setShowHistory(true)} className="w-8 h-8 rounded-full flex items-center justify-center text-[14px] transition-colors hover:opacity-70" style={{ color: 'var(--text-soft)' }} title="Full history">🕰️</button>
+                  </div>
+                </div>
+
+                <div className="text-center text-[13px] mb-4" style={{ color: 'var(--text-faint)' }}>
+                  {new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}, {new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                </div>
+
+                <div className="flex-1 min-h-55 flex flex-col">
+                  {journalTab === 'write' && (
+                    <textarea value={journal} onChange={(e) => { if (guardGuestWrite(e.target.value)) setJournal(e.target.value); }}
+                      placeholder="Start typing" className="flex-1 resize-none outline-none border-none bg-transparent text-[16px] leading-relaxed" style={{ color: 'var(--text)' }} />
+                  )}
+                  {journalTab === 'draw' && (isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to save your drawings" /> : <DrawCanvas onSaved={(path) => saveJournalEntry('drawing', null, path)} />)}
+                  {journalTab === 'voice' && (isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to record voice notes" /> : <VoiceNotes onSaved={(path) => saveJournalEntry('voice', null, path)} />)}
+                </div>
+
                 {journalTab === 'write' && (
-                  <button onClick={saveWrittenEntry} disabled={!journal.trim()} className="text-[13.5px] font-semibold px-3 py-1.5"
-                    style={{ color: 'var(--accent-deep)', opacity: journal.trim() ? 1 : 0.4 }}>
-                    Save
-                  </button>
+                  <div className="flex justify-end pt-3 mt-3" style={{ borderTop: '1px solid var(--card-border)' }}>
+                    <button onClick={saveWrittenEntry} disabled={!journal.trim()} className="text-[13.5px] font-semibold px-3 py-1.5"
+                      style={{ color: 'var(--accent-deep)', opacity: journal.trim() ? 1 : 0.4 }}>
+                      {editingEntryId ? 'Save changes' : 'Save'}
+                    </button>
+                  </div>
                 )}
               </div>
             </motion.section>
