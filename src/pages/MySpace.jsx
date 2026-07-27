@@ -122,7 +122,7 @@ function PhotoRow({ small = false, photos, onAdd, onRemove }) {
         </div>
       ))}
       <input id={inputId} type="file" accept="image/*" multiple onChange={handleFiles} className="hidden" />
-      <label htmlFor={inputId} className={`${size} rounded-xl flex items-center justify-center cursor-pointer text-xl shrink-0`}
+      <label htmlFor={inputId} className={`${size} rounded-xl flex items-center justify-center cursor-pointer text-xl flex-shrink-0`}
         style={{ border: '1.5px dashed var(--card-border)', color: 'var(--accent-deep)' }}>+</label>
     </div>
   );
@@ -172,7 +172,7 @@ function ChatHistoryItem({ item, active, onOpen, onDelete, onRename }) {
           <div className="text-sm font-medium truncate">{item.title || item.snippet}</div>
         )}
       </div>
-      <div className="flex items-center gap-2.5 shrink-0">
+      <div className="flex items-center gap-2.5 flex-shrink-0">
         <button onClick={(e) => { e.stopPropagation(); setEditing(true); }} className="text-xs opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: 'var(--accent-deep)' }} title="Rename">✎</button>
         <button onClick={(e) => { e.stopPropagation(); onDelete(item.sessionId); }} className="text-xs opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: '#C0523A' }}>Delete</button>
       </div>
@@ -219,7 +219,7 @@ function JournalWrittenCard({ entry, onUpdate }) {
             autoFocus
             value={text}
             onChange={(e) => setText(e.target.value)}
-            className="w-full min-h-22.5 resize-none outline-none text-[15px] leading-relaxed bg-transparent mb-3"
+            className="w-full min-h-[90px] resize-none outline-none text-[15px] leading-relaxed bg-transparent mb-3"
             style={{ fontFamily: 'var(--font-display)', color: 'var(--text)' }}
           />
           <div className="flex gap-2">
@@ -309,7 +309,7 @@ function JournalLightbox({ entry, onClose, onUpdate }) {
   };
 
   return (
-    <div className="fixed inset-0 z-60 flex items-center justify-center p-5" style={{ background: 'rgba(0,0,0,0.6)' }} onClick={onClose}>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-5" style={{ background: 'rgba(0,0,0,0.6)' }} onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
         className="rounded-2xl overflow-hidden relative"
@@ -464,6 +464,7 @@ export default function MySpace() {
   const [journalEntries, setJournalEntries] = useState([]);
   const [entriesLoading, setEntriesLoading] = useState(true);
   const [allSessions, setAllSessions] = useState([]);
+  const [showAllSessions, setShowAllSessions] = useState(false);
   const [showChatHistory, setShowChatHistory] = useState(false);
   const [openEntryId, setOpenEntryId] = useState(null);
   const [entryTitle, setEntryTitle] = useState('');
@@ -963,12 +964,12 @@ export default function MySpace() {
                 {allSessions.length === 0 && (
                   <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{isGuest ? 'Sign in to save your chat history.' : 'Past chats will show up here.'}</div>
                 )}
-                {allSessions.slice(0, 2).map((h) => (
+                {(showAllSessions ? allSessions : allSessions.slice(0, 2)).map((h) => (
                   <ChatHistoryItem key={h.sessionId} item={h} active={h.sessionId === activeSessionId} onOpen={loadSession} onDelete={deleteSession} onRename={renameSession} />
                 ))}
                 {allSessions.length > 2 && (
-                  <button onClick={() => navigate('/profile?section=history')} className="text-xs font-semibold mt-1" style={{ color: 'var(--accent-deep)' }}>
-                    View all ({allSessions.length}) →
+                  <button onClick={() => setShowAllSessions((v) => !v)} className="text-xs font-semibold mt-1" style={{ color: 'var(--accent-deep)' }}>
+                    {showAllSessions ? '← Show less' : `View all (${allSessions.length}) →`}
                   </button>
                 )}
               </div>
