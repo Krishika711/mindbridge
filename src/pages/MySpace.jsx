@@ -129,7 +129,7 @@ function PhotoRow({ small = false, photos, onAdd, onRemove }) {
         </div>
       ))}
       <input id={inputId} type="file" accept="image/*" multiple onChange={handleFiles} className="hidden" />
-      <label htmlFor={inputId} className={`${size} rounded-xl flex items-center justify-center cursor-pointer text-xl shrink-0`}
+      <label htmlFor={inputId} className={`${size} rounded-xl flex items-center justify-center cursor-pointer text-xl flex-shrink-0`}
         style={{ border: '1.5px dashed var(--card-border)', color: 'var(--accent-deep)' }}>+</label>
     </div>
   );
@@ -182,7 +182,7 @@ function ChatHistoryItem({ item, active, onOpen, onDelete, onRename }) {
           <div className="text-sm font-medium truncate">{item.title || item.snippet}</div>
         )}
       </div>
-      <div className="flex items-center gap-2.5 shrink-0">
+      <div className="flex items-center gap-2.5 flex-shrink-0">
         <button onClick={(e) => { e.stopPropagation(); setEditing(true); }} className="text-xs opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: 'var(--accent-deep)' }} title="Rename">✎</button>
         <button onClick={(e) => { e.stopPropagation(); onDelete(item.sessionId); }} className="text-xs opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: '#C0523A' }}>Delete</button>
       </div>
@@ -239,7 +239,7 @@ function JournalWrittenCard({ entry, onUpdate, onDelete }) {
             autoFocus
             value={text}
             onChange={(e) => setText(e.target.value)}
-            className="w-full min-h-22.5 resize-none outline-none text-[15px] leading-relaxed bg-transparent mb-3"
+            className="w-full min-h-[90px] resize-none outline-none text-[15px] leading-relaxed bg-transparent mb-3"
             style={{ fontFamily: 'var(--font-display)', color: 'var(--text)' }}
           />
           <div className="flex gap-2">
@@ -346,7 +346,7 @@ function JournalLightbox({ entry, onClose, onUpdate, onDelete }) {
   };
 
   return (
-    <div className="fixed inset-0 z-60 flex items-center justify-center p-5" style={{ background: 'rgba(0,0,0,0.6)' }} onClick={onClose}>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-5" style={{ background: 'rgba(0,0,0,0.6)' }} onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
         className="rounded-2xl overflow-hidden relative"
@@ -394,11 +394,19 @@ const HISTORY_CATEGORIES = [
   { key: 'photo', label: 'Photos', hint: 'Snapshots you can watch back — edit the name anytime.' },
 ];
 
-function HistoryOverlay({ entries, loading, onClose, onUpdate, onDelete }) {
+function HistoryOverlay({ entries, loading, onClose, onUpdate, onDelete, onDeleteField }) {
   const [category, setCategory] = useState('text');
   const [lightboxEntry, setLightboxEntry] = useState(null);
 
-  const grouped = HISTORY_CATEGORIES.map((c) => ({ ...c, items: entries.filter((e) => e.type === c.key) }));
+  const grouped = HISTORY_CATEGORIES.map((c) => ({
+    ...c,
+    items: entries.filter((e) => {
+      if (c.key === 'text') return !!e.text_content;
+      if (c.key === 'drawing') return !!e.drawing_path;
+      if (c.key === 'voice') return !!e.voice_path;
+      return e.type === 'photo';
+    }),
+  }));
   const active = grouped.find((c) => c.key === category) || grouped[0];
 
   return (
@@ -447,20 +455,24 @@ function HistoryOverlay({ entries, loading, onClose, onUpdate, onDelete }) {
 
             {!loading && category === 'text' && active.items.length > 0 && (
               <div className="flex flex-col gap-3">
-                {active.items.map((e) => <JournalWrittenCard key={e.id} entry={e} onUpdate={onUpdate} onDelete={onDelete} />)}
+                {active.items.map((e) => <JournalWrittenCard key={e.id} entry={e} onUpdate={onUpdate} onDelete={() => onDeleteField(e.id, 'text_content')} />)}
               </div>
             )}
 
             {!loading && category === 'voice' && active.items.length > 0 && (
               <div className="flex flex-col gap-3">
-                {active.items.map((e) => <VoiceRow key={e.id} entry={e} onUpdate={onUpdate} onDelete={onDelete} />)}
+                {active.items.map((e) => <VoiceRow key={e.id} entry={e} onUpdate={onUpdate} onDelete={() => onDeleteField(e.id, 'voice_path')} />)}
               </div>
             )}
 
             {!loading && (category === 'photo' || category === 'drawing') && active.items.length > 0 && (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {active.items.map((e) => (
-                  <JournalMediaThumb key={e.id} entry={e} onOpen={setLightboxEntry} />
+                  <JournalMediaThumb
+                    key={e.id}
+                    entry={{ ...e, mediaUrl: category === 'drawing' ? e.drawingUrl : e.mediaUrl }}
+                    onOpen={(entry) => setLightboxEntry({ ...entry, _deleteField: category === 'drawing' ? 'drawing_path' : null })}
+                  />
                 ))}
               </div>
             )}
@@ -473,7 +485,7 @@ function HistoryOverlay({ entries, loading, onClose, onUpdate, onDelete }) {
           entry={lightboxEntry}
           onClose={() => setLightboxEntry(null)}
           onUpdate={async (id, title) => { await onUpdate(id, title); setLightboxEntry((cur) => (cur ? { ...cur, text_content: title } : cur)); }}
-          onDelete={onDelete}
+          onDelete={(id) => (lightboxEntry._deleteField ? onDeleteField(id, lightboxEntry._deleteField) : onDelete(id))}
         />
       )}
     </div>
@@ -623,21 +635,32 @@ export default function MySpace() {
     setEntriesLoading(true);
     const { data, error } = await supabase
       .from('journal_entries')
-      .select('id, type, title, text_content, media_path, created_at')
+      .select('id, type, title, text_content, media_path, drawing_path, voice_path, created_at')
       .eq('user_id', session.user.id)
       .order('created_at', { ascending: false });
     setEntriesLoading(false);
     if (error) { console.error('journal entries load failed:', error.message); return; }
 
+    const signIfPresent = async (path) => {
+      if (!path) return null;
+      const { data: signed, error: signErr } = await supabase.storage.from('media').createSignedUrl(path, 3600);
+      if (signErr) { console.error('journal media signed url failed:', signErr.message); return null; }
+      return signed.signedUrl;
+    };
+
     const resolved = await Promise.all(
       (data || []).map(async (e) => {
-        let mediaUrl = null;
-        if (e.media_path) {
-          const { data: signed, error: signErr } = await supabase.storage.from('media').createSignedUrl(e.media_path, 3600);
-          if (signErr) console.error('journal media signed url failed:', signErr.message);
-          else mediaUrl = signed.signedUrl;
-        }
-        return { id: e.id, type: e.type, title: e.title, text_content: e.text_content, media_path: e.media_path, mediaUrl, date: formatDateLabel(e.created_at) };
+        const [mediaUrl, drawingUrl, voiceUrl] = await Promise.all([
+          signIfPresent(e.media_path),
+          signIfPresent(e.drawing_path),
+          signIfPresent(e.voice_path),
+        ]);
+        return {
+          id: e.id, type: e.type, title: e.title, text_content: e.text_content,
+          media_path: e.media_path, drawing_path: e.drawing_path, voice_path: e.voice_path,
+          mediaUrl, drawingUrl, voiceUrl,
+          date: formatDateLabel(e.created_at),
+        };
       })
     );
     setJournalEntries(resolved);
@@ -645,13 +668,26 @@ export default function MySpace() {
 
   useEffect(() => { loadJournalEntries(); }, [loadJournalEntries]);
 
-  const saveJournalEntry = async (type, textContent = null, mediaPath = null, title = null) => {
+  // Merges into the currently-open entry (editingEntryId) if there is one,
+  // otherwise starts a new entry and keeps it open so the next save (from
+  // another tab) merges into the same row — that continues until "+ New Entry".
+  const saveJournalEntry = async (fields) => {
     if (!session) return;
-    const { error } = await supabase
-      .from('journal_entries')
-      .insert({ user_id: session.user.id, type, title, text_content: textContent, media_path: mediaPath });
-    if (error) { console.error('journal entry save failed:', error.message); return; }
-    loadJournalEntries();
+    if (editingEntryId) {
+      const { error } = await supabase.from('journal_entries').update(fields).eq('id', editingEntryId);
+      if (error) { console.error('journal entry save failed:', error.message); return; }
+      setJournalEntries((entries) => entries.map((e) => (e.id === editingEntryId ? { ...e, ...fields } : e)));
+      loadJournalEntries();
+    } else {
+      const { data, error } = await supabase
+        .from('journal_entries')
+        .insert({ user_id: session.user.id, type: 'note', ...fields })
+        .select('id')
+        .single();
+      if (error) { console.error('journal entry save failed:', error.message); return; }
+      setEditingEntryId(data.id);
+      loadJournalEntries();
+    }
   };
 
   const updateJournalEntry = async (id, fields) => {
@@ -661,13 +697,39 @@ export default function MySpace() {
     setJournalEntries((entries) => entries.map((e) => (e.id === id ? { ...e, ...fields } : e)));
   };
 
+  const deleteJournalAttachment = async (id, field) => {
+    if (!session) return;
+    const entry = journalEntries.find((e) => e.id === id);
+    if (!entry) return;
+
+    const remaining = {
+      text_content: field === 'text_content' ? null : entry.text_content,
+      drawing_path: field === 'drawing_path' ? null : entry.drawing_path,
+      voice_path: field === 'voice_path' ? null : entry.voice_path,
+    };
+    if (!remaining.text_content && !remaining.drawing_path && !remaining.voice_path) {
+      return deleteJournalEntry(id);
+    }
+
+    const path = entry[field];
+    const fields = { [field]: null };
+    const { error } = await supabase.from('journal_entries').update(fields).eq('id', id);
+    if (error) { console.error('journal attachment delete failed:', error.message); return; }
+    setJournalEntries((entries) => entries.map((e) => (e.id === id ? { ...e, ...fields } : e)));
+    if (path) {
+      const { error: storageErr } = await supabase.storage.from('media').remove([path]);
+      if (storageErr) console.error('journal media delete failed:', storageErr.message);
+    }
+  };
+
   const deleteJournalEntry = async (id) => {
     if (!session) return;
     const entry = journalEntries.find((e) => e.id === id);
     setJournalEntries((entries) => entries.filter((e) => e.id !== id));
     if (editingEntryId === id) { setEditingEntryId(null); setJournal(''); }
-    if (entry?.media_path) {
-      const { error: storageErr } = await supabase.storage.from('media').remove([entry.media_path]);
+    const pathsToRemove = [entry?.media_path, entry?.drawing_path, entry?.voice_path].filter(Boolean);
+    if (pathsToRemove.length) {
+      const { error: storageErr } = await supabase.storage.from('media').remove(pathsToRemove);
       if (storageErr) console.error('journal media delete failed:', storageErr.message);
     }
     const { error } = await supabase.from('journal_entries').delete().eq('id', id);
@@ -677,13 +739,16 @@ export default function MySpace() {
   const saveWrittenEntry = () => {
     const text = journal.trim();
     if (!text) return;
-    if (editingEntryId) {
-      updateJournalEntry(editingEntryId, { text_content: text });
-    } else {
-      saveJournalEntry('text', text);
-    }
-    setJournal('');
-    setEditingEntryId(null);
+    saveJournalEntry({ text_content: text });
+  };
+
+  // Photos ("Add Photos" quick strip in the sidebar) stay standalone —
+  // not part of the merge-into-current-entry behavior below.
+  const savePhotoEntry = async (path) => {
+    if (!session) return;
+    const { error } = await supabase.from('journal_entries').insert({ user_id: session.user.id, type: 'photo', media_path: path });
+    if (error) { console.error('journal entry save failed:', error.message); return; }
+    loadJournalEntries();
   };
 
   const selectJournalEntry = (entry) => {
@@ -706,7 +771,7 @@ export default function MySpace() {
     const path = `${session.user.id}/journal-photo-${Date.now()}.png`;
     const { error: uploadErr } = await supabase.storage.from('media').upload(path, blob, { contentType: blob.type || 'image/png' });
     if (uploadErr) { console.error('journal photo upload failed:', uploadErr.message); return; }
-    saveJournalEntry('photo', null, path);
+    savePhotoEntry(path);
   };
   const removePhoto = (i) => setPhotos((p) => p.filter((_, idx) => idx !== i));
 
@@ -997,10 +1062,10 @@ export default function MySpace() {
                         placeholder="Jot something down while you chat..." className="w-full resize-none outline-none border-none bg-transparent text-sm leading-relaxed min-h-25" style={{ color: 'var(--text)' }} />
                     )}
                     {openTool === 'draw' && (
-                      isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to save your drawings" /> : <DrawCanvas onSendToChat={sendDrawingToChat} onSaved={(path) => saveJournalEntry('drawing', null, path)} />
+                      isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to save your drawings" /> : <DrawCanvas onSendToChat={sendDrawingToChat} onSaved={(path) => saveJournalEntry({ drawing_path: path })} />
                     )}
                     {openTool === 'voice' && (
-                      isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to record voice notes" /> : <VoiceNotes onSaved={(path) => saveJournalEntry('voice', null, path)} onSendToChat={sendVoiceToChat} />
+                      isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to record voice notes" /> : <VoiceNotes onSaved={(path) => saveJournalEntry({ voice_path: path })} onSendToChat={sendVoiceToChat} />
                     )}
                   </div>
                 </motion.div>
@@ -1027,7 +1092,7 @@ export default function MySpace() {
                 {allSessions.length === 0 && (
                   <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{isGuest ? 'Sign in to save your chat history.' : 'Past chats will show up here.'}</div>
                 )}
-                <div className={showAllSessions ? 'max-h-65 overflow-y-auto pr-1 -mr-1' : ''}>
+                <div className={showAllSessions ? 'max-h-[260px] overflow-y-auto pr-1 -mr-1' : ''}>
                   {(showAllSessions ? allSessions : allSessions.slice(0, 2)).map((h) => (
                     <ChatHistoryItem key={h.sessionId} item={h} active={h.sessionId === activeSessionId} onOpen={loadSession} onDelete={deleteSession} onRename={renameSession} />
                   ))}
@@ -1066,16 +1131,19 @@ export default function MySpace() {
                   <div>
                     <div className="text-[15px] font-semibold" style={{ color: 'var(--text)' }}>Journal</div>
                     <div className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
-                      {journalEntries.filter((e) => e.type === 'text').length} entries
+                      {journalEntries.filter((e) => e.type !== 'photo').length} entries
                     </div>
                   </div>
                   <button onClick={startNewJournalEntry} className="w-7 h-7 rounded-full flex items-center justify-center text-lg" style={{ color: 'var(--accent-deep)' }} title="New entry">+</button>
                 </div>
                 <div className="flex-1 overflow-y-auto">
-                  {journalEntries.filter((e) => e.type === 'text').length === 0 && (
+                  {journalEntries.filter((e) => e.type !== 'photo').length === 0 && (
                     <div className="text-xs px-4 py-4" style={{ color: 'var(--text-faint)' }}>No entries yet.</div>
                   )}
-                  {journalEntries.filter((e) => e.type === 'text').map((e) => (
+                  {journalEntries.filter((e) => e.type !== 'photo').map((e) => {
+                    const titleFallback = e.drawing_path && e.voice_path ? 'Drawing + Voice' : e.drawing_path ? 'Drawing' : e.voice_path ? 'Voice note' : 'New Entry';
+                    const preview = e.text_content ? e.text_content.slice(0, 34) : (e.drawing_path || e.voice_path ? '' : 'Empty entry');
+                    return (
                     <div key={e.id} className="group relative" style={{ borderBottom: '1px solid var(--card-border)' }}>
                       <button
                         onClick={() => selectJournalEntry(e)}
@@ -1083,10 +1151,12 @@ export default function MySpace() {
                         style={{ background: editingEntryId === e.id ? 'var(--surface-strong)' : 'transparent' }}
                       >
                         <div className="text-[13.5px] font-semibold truncate" style={{ color: 'var(--text)' }}>
-                          {e.title || (e.text_content ? e.text_content.slice(0, 28) : 'New Entry')}
+                          {e.title || (e.text_content ? e.text_content.slice(0, 28) : titleFallback)}
                         </div>
-                        <div className="text-[11.5px] mt-0.5 truncate" style={{ color: 'var(--text-faint)' }}>
-                          {e.date}{e.text_content ? ` — ${e.text_content.slice(0, 34)}` : ''}
+                        <div className="flex items-center gap-1.5 mt-0.5 text-[11.5px]" style={{ color: 'var(--text-faint)' }}>
+                          <span className="truncate">{e.date}{preview ? ` — ${preview}` : ''}</span>
+                          {e.drawing_path && <CategoryIcon type="drawing" />}
+                          {e.voice_path && <CategoryIcon type="voice" />}
                         </div>
                       </button>
                       <button
@@ -1100,7 +1170,8 @@ export default function MySpace() {
                         </svg>
                       </button>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 
@@ -1136,8 +1207,8 @@ export default function MySpace() {
                     <textarea value={journal} onChange={(e) => { if (guardGuestWrite(e.target.value)) setJournal(e.target.value); }}
                       placeholder="Start typing" className="flex-1 resize-none outline-none border-none bg-transparent text-[16px] leading-relaxed" style={{ color: 'var(--text)' }} />
                   )}
-                  {journalTab === 'draw' && (isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to save your drawings" /> : <DrawCanvas onSaved={(path) => saveJournalEntry('drawing', null, path)} />)}
-                  {journalTab === 'voice' && (isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to record voice notes" /> : <VoiceNotes onSaved={(path) => saveJournalEntry('voice', null, path)} />)}
+                  {journalTab === 'draw' && (isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to save your drawings" /> : <DrawCanvas onSaved={(path) => saveJournalEntry({ drawing_path: path })} />)}
+                  {journalTab === 'voice' && (isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to record voice notes" /> : <VoiceNotes onSaved={(path) => saveJournalEntry({ voice_path: path })} />)}
                 </div>
 
                 {journalTab === 'write' && (
@@ -1159,7 +1230,7 @@ export default function MySpace() {
       <StormyAlert open={showStormy} onClose={() => setShowStormy(false)} />
       <GuestSignInPrompt open={showGuestGate} onClose={() => setShowGuestGate(false)} />
       {showHistory && (
-        <HistoryOverlay entries={journalEntries} loading={entriesLoading} onClose={() => setShowHistory(false)} onUpdate={updateJournalEntry} onDelete={deleteJournalEntry} />
+        <HistoryOverlay entries={journalEntries} loading={entriesLoading} onClose={() => setShowHistory(false)} onUpdate={updateJournalEntry} onDelete={deleteJournalEntry} onDeleteField={deleteJournalAttachment} />
       )}
     </div>
   );
