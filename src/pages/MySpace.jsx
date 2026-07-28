@@ -506,6 +506,7 @@ export default function MySpace() {
   const [entriesLoading, setEntriesLoading] = useState(true);
   const [allSessions, setAllSessions] = useState([]);
   const [showAllSessions, setShowAllSessions] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showChatHistory, setShowChatHistory] = useState(false);
   const [openEntryId, setOpenEntryId] = useState(null);
   const [entryTitle, setEntryTitle] = useState('');
@@ -914,7 +915,7 @@ export default function MySpace() {
         Welcome back, {userName || 'Friend'} · feeling <span style={{ color: 'var(--accent-deep)', fontWeight: 600 }}>{mood}</span> today
       </div>
 
-      <main className={`relative z-10 flex-1 p-6 px-9 min-h-0 ${responding ? 'grid gap-5 md:grid-cols-[1.7fr_1fr] grid-cols-1' : 'flex flex-col'}`}>
+      <main className={`relative z-10 flex-1 p-6 px-9 min-h-0 ${responding ? `grid gap-5 grid-cols-1 ${sidebarOpen ? 'md:grid-cols-[2.3fr_1fr]' : 'md:grid-cols-1'}` : 'flex flex-col'}`}>
         {responding && (
           <section className="flex flex-col rounded-[22px] p-6 backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', boxShadow: '0 20px 50px -30px rgba(80,50,10,0.3)' }}>
             {crisisVisible && (
@@ -929,7 +930,14 @@ export default function MySpace() {
 
             <div className="flex items-center justify-between mb-4">
               <div className="text-[11.5px] font-bold tracking-[1.4px] uppercase" style={{ color: 'var(--accent-deep)' }}>Chat with Wisp</div>
-              <button onClick={startNewChat} className="text-[11.5px] font-semibold px-3 py-1.5 rounded-full" style={{ border: '1px solid var(--card-border)', color: 'var(--accent-deep)' }}>+ New Chat</button>
+              <div className="flex items-center gap-2">
+                <button onClick={startNewChat} className="text-[11.5px] font-semibold px-3 py-1.5 rounded-full" style={{ border: '1px solid var(--card-border)', color: 'var(--accent-deep)' }}>+ New Chat</button>
+                <button onClick={() => setSidebarOpen((v) => !v)} className="w-8 h-8 rounded-full items-center justify-center hidden md:flex" style={{ border: '1px solid var(--card-border)', color: 'var(--text-soft)' }} title={sidebarOpen ? 'Hide panel' : 'Show panel'}>
+                  <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="4" width="18" height="16" rx="2" /><line x1="15" y1="4" x2="15" y2="20" />
+                  </svg>
+                </button>
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto flex flex-col gap-3 py-1.5 pr-1 min-h-40">
@@ -1011,6 +1019,7 @@ export default function MySpace() {
 
         <AnimatePresence mode="wait">
           {responding ? (
+            sidebarOpen && (
             <motion.section key="side" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               className="rounded-[22px] p-6 flex flex-col gap-6 overflow-y-auto backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', boxShadow: '0 20px 50px -30px rgba(80,50,10,0.3)' }}>
               <div>
@@ -1018,9 +1027,11 @@ export default function MySpace() {
                 {allSessions.length === 0 && (
                   <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{isGuest ? 'Sign in to save your chat history.' : 'Past chats will show up here.'}</div>
                 )}
-                {(showAllSessions ? allSessions : allSessions.slice(0, 2)).map((h) => (
-                  <ChatHistoryItem key={h.sessionId} item={h} active={h.sessionId === activeSessionId} onOpen={loadSession} onDelete={deleteSession} onRename={renameSession} />
-                ))}
+                <div className={showAllSessions ? 'max-h-[260px] overflow-y-auto pr-1 -mr-1' : ''}>
+                  {(showAllSessions ? allSessions : allSessions.slice(0, 2)).map((h) => (
+                    <ChatHistoryItem key={h.sessionId} item={h} active={h.sessionId === activeSessionId} onOpen={loadSession} onDelete={deleteSession} onRename={renameSession} />
+                  ))}
+                </div>
                 {allSessions.length > 2 && (
                   <button onClick={() => setShowAllSessions((v) => !v)} className="text-xs font-semibold mt-1" style={{ color: 'var(--accent-deep)' }}>
                     {showAllSessions ? '← Show less' : `View all (${allSessions.length}) →`}
@@ -1045,6 +1056,7 @@ export default function MySpace() {
                 </div>
               </div>
             </motion.section>
+            )
           ) : (
             <motion.section key="journal" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               className="flex flex-col md:flex-row w-full flex-1 rounded-2xl overflow-hidden" style={{ border: '1px solid var(--card-border)' }}>
