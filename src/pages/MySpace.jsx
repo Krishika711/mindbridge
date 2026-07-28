@@ -129,7 +129,7 @@ function PhotoRow({ small = false, photos, onAdd, onRemove }) {
         </div>
       ))}
       <input id={inputId} type="file" accept="image/*" multiple onChange={handleFiles} className="hidden" />
-      <label htmlFor={inputId} className={`${size} rounded-xl flex items-center justify-center cursor-pointer text-xl flex-shrink-0`}
+      <label htmlFor={inputId} className={`${size} rounded-xl flex items-center justify-center cursor-pointer text-xl shrink-0`}
         style={{ border: '1.5px dashed var(--card-border)', color: 'var(--accent-deep)' }}>+</label>
     </div>
   );
@@ -1027,7 +1027,7 @@ export default function MySpace() {
                 {allSessions.length === 0 && (
                   <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{isGuest ? 'Sign in to save your chat history.' : 'Past chats will show up here.'}</div>
                 )}
-                <div className={showAllSessions ? 'max-h-[260px] overflow-y-auto pr-1 -mr-1' : ''}>
+                <div className={showAllSessions ? 'max-h-65 overflow-y-auto pr-1 -mr-1' : ''}>
                   {(showAllSessions ? allSessions : allSessions.slice(0, 2)).map((h) => (
                     <ChatHistoryItem key={h.sessionId} item={h} active={h.sessionId === activeSessionId} onOpen={loadSession} onDelete={deleteSession} onRename={renameSession} />
                   ))}
