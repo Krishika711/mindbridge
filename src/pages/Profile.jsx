@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import Header from '../components/Header';
 import MoodBackground from '../components/MoodBackground';
 import { HelpButton } from '../components/ui/Misc';
@@ -40,20 +40,6 @@ function formatDateLabel(iso) {
   }
   if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-}
-
-// Monday-based — matches the cron job that pre-generates reports every Monday.
-function getWeekStart(date = new Date()) {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = (day === 0 ? -6 : 1) - day;
-  d.setDate(d.getDate() + diff);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-function toISODate(d) {
-  return d.toISOString().slice(0, 10);
 }
 
 function HeartbeatSpectrum({ moodHistory }) {
@@ -163,7 +149,7 @@ function ChatHistoryRow({ item, onDelete, onRename }) {
           <div className="text-sm font-medium truncate">{item.title || item.snippet}</div>
         )}
       </div>
-      <div className="flex items-center gap-2.5 shrink-0">
+      <div className="flex items-center gap-2.5 flex-shrink-0">
         <button onClick={() => setEditing(true)} className="text-xs opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: 'var(--accent-deep)' }} title="Rename">✎</button>
         <button
           onClick={() => { if (window.confirm('Once deleted, this chat cannot be recovered.')) onDelete(item.sessionId); }}
@@ -179,8 +165,11 @@ function ChatHistoryRow({ item, onDelete, onRename }) {
 
 export default function Profile() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { theme, mode, session, userName, moodHistory, signOut } = useMood();
-  const [section, setSection] = useState('profile');
+  const VALID_SECTIONS = ['profile', 'account', 'history', 'mood', 'contact'];
+  const requestedSection = searchParams.get('section');
+  const [section, setSection] = useState(VALID_SECTIONS.includes(requestedSection) ? requestedSection : 'profile');
 
   const isGoogleUser = session?.user?.app_metadata?.provider === 'google'
     || session?.user?.identities?.some((i) => i.provider === 'google');
@@ -202,10 +191,15 @@ export default function Profile() {
   const [passwordSaving, setPasswordSaving] = useState(false);
   const [passwordMsg, setPasswordMsg] = useState('');
 
-  // Emergency contact
+  // Emergency contacts (up to 5)
+  const [emergencyContacts, setEmergencyContacts] = useState([]);
+  const [showContactForm, setShowContactForm] = useState(false);
   const [contactName, setContactName] = useState('');
+  const [contactRelationship, setContactRelationship] = useState('');
   const [contactEmail, setContactEmail] = useState('');
-  const [savedTick, setSavedTick] = useState(false);
+  const [contactPhone, setContactPhone] = useState('');
+  const [contactSaving, setContactSaving] = useState(false);
+  const [contactError, setContactError] = useState('');
 
   // Chat history
   const [sessions, setSessions] = useState([]);
@@ -213,6 +207,9 @@ export default function Profile() {
 
   // Weekly AI reflection
   const [weeklyReport, setWeeklyReport] = useState(null);
+  const [pastReports, setPastReports] = useState([]);
+  const [pastReportsLoading, setPastReportsLoading] = useState(true);
+  const [viewingReport, setViewingReport] = useState(null); // a past report object being viewed, or null = current week
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState('');
   const [reportFetched, setReportFetched] = useState(false);
@@ -238,12 +235,12 @@ export default function Profile() {
 
     supabase
       .from('emergency_contacts')
-      .select('contact_name, contact_email')
+      .select('id, contact_name, relationship, contact_email, phone')
       .eq('user_id', session.user.id)
-      .maybeSingle()
+      .order('created_at', { ascending: true })
       .then(({ data, error }) => {
-        if (error) { console.error('emergency contact load failed:', error.message); return; }
-        if (data) { setContactName(data.contact_name || ''); setContactEmail(data.contact_email || ''); }
+        if (error) { console.error('emergency contacts load failed:', error.message); return; }
+        setEmergencyContacts(data || []);
       });
   }, [session, userName]);
 
@@ -385,19 +382,36 @@ export default function Profile() {
     }
   };
 
+  const loadPastReports = useCallback(async () => {
+    if (!session) { setPastReportsLoading(false); return; }
+    setPastReportsLoading(true);
+    const { data, error } = await supabase
+      .from('weekly_reports')
+      .select('id, week_start, report, chat_count, journal_count, mood_count, created_at')
+      .eq('user_id', session.user.id)
+      .order('week_start', { ascending: false });
+    setPastReportsLoading(false);
+    if (error) { console.error('past reports load failed:', error.message); return; }
+    setPastReports(data || []);
+  }, [session]);
+
+  useEffect(() => { loadPastReports(); }, [loadPastReports]);
+
   const generateWeeklyReport = useCallback(async () => {
     if (!session) return;
     setReportLoading(true);
     setReportError('');
+    setViewingReport(null);
     try {
-      const weekStart = getWeekStart();
-      const weekStartISO = toISODate(weekStart);
-      const weekStartTS = weekStart.toISOString();
+      const weekAgo = new Date();
+      weekAgo.setDate(weekAgo.getDate() - 7);
+      const weekAgoIso = weekAgo.toISOString();
+      const weekStartDate = weekAgo.toISOString().slice(0, 10); // YYYY-MM-DD, keys this report to "the week ending today"
 
       const [{ data: msgs, error: msgErr }, { data: moods, error: moodErr }, { data: hope, error: hopeErr }] = await Promise.all([
-        supabase.from('messages').select('text, created_at').eq('user_id', session.user.id).eq('from_role', 'user').gte('created_at', weekStartTS).order('created_at', { ascending: true }),
-        supabase.from('mood_logs').select('mood, score, created_at').eq('user_id', session.user.id).gte('created_at', weekStartTS).order('created_at', { ascending: true }),
-        supabase.from('hope_vault_tapes').select('text_scrap, voice_caption, letter, created_at').eq('user_id', session.user.id).gte('created_at', weekStartTS).order('created_at', { ascending: true }),
+        supabase.from('messages').select('text, created_at').eq('user_id', session.user.id).eq('from_role', 'user').gte('created_at', weekAgoIso).order('created_at', { ascending: true }),
+        supabase.from('mood_logs').select('mood, score, created_at').eq('user_id', session.user.id).gte('created_at', weekAgoIso).order('created_at', { ascending: true }),
+        supabase.from('hope_vault_tapes').select('text_scrap, voice_caption, letter, created_at').eq('user_id', session.user.id).gte('created_at', weekAgoIso).order('created_at', { ascending: true }),
       ]);
       if (msgErr) console.error('weekly report messages load failed:', msgErr.message);
       if (moodErr) console.error('weekly report moods load failed:', moodErr.message);
@@ -409,7 +423,7 @@ export default function Profile() {
 
       if (!chats.length && !moodPoints.length && !hopeEntries.length) {
         setWeeklyReport(null);
-        setReportError('There has not been much recorded yet this week, a proper report will be ready once there is a bit more activity.');
+        setReportError("There hasn't been much recorded yet this week — a proper report will be ready once there's a bit more activity.");
         return;
       }
 
@@ -426,52 +440,60 @@ export default function Profile() {
         const { error: saveErr } = await supabase
           .from('weekly_reports')
           .upsert(
-            {
-              user_id: session.user.id,
-              week_start: weekStartISO,
-              report: data.report,
-              activity_snapshot: { chats, moods: moodPoints, hopeEntries },
-            },
+            { user_id: session.user.id, week_start: weekStartDate, report: data.report, chat_count: chats.length, journal_count: hopeEntries.length, mood_count: moodPoints.length },
             { onConflict: 'user_id,week_start' }
           );
         if (saveErr) console.error('weekly report save failed:', saveErr.message);
+        else loadPastReports();
       }
     } catch (err) {
       console.error('weekly report failed:', err.message);
-      setReportError('The report could not be generated right now, try again in a little while..');
+      setReportError("The report couldn't be generated right now — try again in a little while.");
     } finally {
       setReportLoading(false);
     }
-  }, [session]);
+  }, [session, loadPastReports]);
 
   useEffect(() => {
-    if (section !== 'mood' || !session || reportFetched) return;
-    setReportFetched(true);
-    (async () => {
-      const weekStartISO = toISODate(getWeekStart());
-      const { data, error } = await supabase
-        .from('weekly_reports')
-        .select('report')
-        .eq('user_id', session.user.id)
-        .eq('week_start', weekStartISO)
-        .maybeSingle();
-      if (error) console.error('weekly report cache check failed:', error.message);
-      if (data?.report) {
-        setWeeklyReport(data.report);
-      } else {
-        generateWeeklyReport();
-      }
-    })();
+    if (section === 'mood' && session && !reportFetched) {
+      setReportFetched(true);
+      generateWeeklyReport();
+    }
   }, [section, session, reportFetched, generateWeeklyReport]);
 
-  const saveEmergencyContact = async () => {
-    if (!session || !contactName.trim() || !contactEmail.trim()) return;
-    const { error } = await supabase.from('emergency_contacts').upsert({
-      user_id: session.user.id, contact_name: contactName.trim(), contact_email: contactEmail.trim(), updated_at: new Date().toISOString(),
-    });
-    if (error) { console.error('emergency contact save failed:', error.message); return; }
-    setSavedTick(true);
-    setTimeout(() => setSavedTick(false), 1800);
+  const addEmergencyContact = async () => {
+    setContactError('');
+    if (!contactName.trim() || !contactEmail.trim()) {
+      setContactError('Name and email are required.');
+      return;
+    }
+    if (emergencyContacts.length >= 5) {
+      setContactError('You can add up to 5 emergency contacts.');
+      return;
+    }
+    setContactSaving(true);
+    const { data, error } = await supabase
+      .from('emergency_contacts')
+      .insert({
+        user_id: session.user.id,
+        contact_name: contactName.trim(),
+        relationship: contactRelationship.trim() || null,
+        contact_email: contactEmail.trim(),
+        phone: contactPhone.trim() || null,
+      })
+      .select('id, contact_name, relationship, contact_email, phone')
+      .single();
+    setContactSaving(false);
+    if (error) { setContactError(error.message); return; }
+    setEmergencyContacts((c) => [...c, data]);
+    setContactName(''); setContactRelationship(''); setContactEmail(''); setContactPhone('');
+    setShowContactForm(false);
+  };
+
+  const removeEmergencyContact = async (id) => {
+    setEmergencyContacts((c) => c.filter((x) => x.id !== id));
+    const { error } = await supabase.from('emergency_contacts').delete().eq('id', id);
+    if (error) console.error('remove emergency contact failed:', error.message);
   };
 
   return (
@@ -486,12 +508,12 @@ export default function Profile() {
 
           <div className="flex gap-6 items-start flex-col md:flex-row">
             {/* Left sidebar */}
-            <div className="w-full md:w-56 flex md:flex-col gap-2 shrink-0 overflow-x-auto md:overflow-visible pb-1 md:pb-0">
+            <div className="w-full md:w-56 flex md:flex-col gap-2 flex-shrink-0 overflow-x-auto md:overflow-visible pb-1 md:pb-0">
               {NAV_ITEMS.map((item) => (
                 <button
                   key={item.key}
                   onClick={() => setSection(item.key)}
-                  className="flex items-center gap-2.5 px-4 py-3 rounded-2xl text-sm font-semibold text-left shrink-0 whitespace-nowrap"
+                  className="flex items-center gap-2.5 px-4 py-3 rounded-2xl text-sm font-semibold text-left flex-shrink-0 whitespace-nowrap"
                   style={
                     section === item.key
                       ? { background: 'var(--ink)', color: 'var(--ink-text)' }
@@ -510,7 +532,7 @@ export default function Profile() {
                   <div className="text-[11px] font-semibold tracking-[1.4px] uppercase mb-4" style={{ color: 'var(--accent-deep)' }}>Profile</div>
 
                   <div className="flex items-center gap-4 mb-5">
-                    <div className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-semibold overflow-hidden shrink-0" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)' }}>
+                    <div className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-semibold overflow-hidden flex-shrink-0" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)' }}>
                       {avatarUrl ? <img src={avatarUrl} alt="" className="w-full h-full object-cover" /> : (nicknameField || '?').charAt(0).toUpperCase()}
                     </div>
                     <div>
@@ -581,7 +603,7 @@ export default function Profile() {
                   <div className="text-[11px] font-semibold tracking-[1.4px] uppercase mb-4" style={{ color: 'var(--accent-deep)' }}>Chat History</div>
                   {historyLoading && <div className="text-xs" style={{ color: 'var(--text-faint)' }}>Loading…</div>}
                   {!historyLoading && sessions.length === 0 && <div className="text-xs" style={{ color: 'var(--text-faint)' }}>No chats yet.</div>}
-                  <div className="flex flex-col gap-2.5 max-h-128 overflow-y-auto pr-1">
+                  <div className="flex flex-col gap-2.5 max-h-[32rem] overflow-y-auto pr-1">
                     {sessions.map((s) => (
                       <ChatHistoryRow key={s.sessionId} item={s} onDelete={deleteSession} onRename={renameSession} />
                     ))}
@@ -663,17 +685,65 @@ export default function Profile() {
 
               {section === 'contact' && (
                 <div className="rounded-3xl p-6 backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
-                  <div className="text-[11px] font-semibold tracking-[1.4px] uppercase mb-2" style={{ color: 'var(--accent-deep)' }}>Emergency Contact</div>
-                  <p className="text-xs mb-4 leading-relaxed max-w-sm" style={{ color: 'var(--text-faint)' }}>
-                    If high-risk language is detected in your chat, this person gets a real email alert.
-                  </p>
-                  <div className="max-w-sm">
-                    <input value={contactName} onChange={(e) => setContactName(e.target.value)} onBlur={saveEmergencyContact} placeholder="Contact name (e.g. Maa, Rohan)"
-                      className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none mb-2" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)', color: 'var(--text)' }} />
-                    <input value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} onBlur={saveEmergencyContact} placeholder="their@email.com" type="email"
-                      className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)', color: 'var(--text)' }} />
-                    {savedTick && <div className="text-xs mt-2" style={{ color: 'var(--accent-deep)' }}>Saved ✓</div>}
+                  <div className="text-[11px] font-semibold tracking-[1.4px] uppercase mb-2" style={{ color: 'var(--accent-deep)' }}>
+                    Emergency Contacts ({emergencyContacts.length} of 5)
                   </div>
+                  <p className="text-xs mb-4 leading-relaxed max-w-sm" style={{ color: 'var(--text-faint)' }}>
+                    If high-risk language is detected in your chat, everyone on this list gets a real email alert.
+                  </p>
+
+                  {emergencyContacts.length === 0 && (
+                    <div className="text-sm mb-4" style={{ color: 'var(--text-faint)' }}>Nobody added yet.</div>
+                  )}
+
+                  <div className="flex flex-col gap-3 max-w-sm">
+                    {emergencyContacts.map((c) => (
+                      <div key={c.id} className="group flex items-center justify-between gap-3 rounded-2xl p-4" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold flex-shrink-0" style={{ background: 'var(--card-border)' }}>
+                            {c.contact_name.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="font-semibold text-[14px] truncate">{c.contact_name}</div>
+                            <div className="text-xs truncate" style={{ color: 'var(--text-faint)' }}>
+                              {c.relationship || 'Contact'} · {c.contact_email}{c.phone ? ` · ${c.phone}` : ''}
+                            </div>
+                          </div>
+                        </div>
+                        <button onClick={() => removeEmergencyContact(c.id)} className="text-xs opacity-0 group-hover:opacity-100 transition-opacity px-1 flex-shrink-0" style={{ color: '#C0523A' }}>
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  {!showContactForm && emergencyContacts.length < 5 && (
+                    <button onClick={() => setShowContactForm(true)} className="mt-4 flex items-center gap-2 text-sm font-medium" style={{ color: 'var(--accent-deep)' }}>
+                      <span className="text-lg leading-none">+</span> Add contact
+                    </button>
+                  )}
+
+                  {showContactForm && (
+                    <div className="mt-4 rounded-2xl p-4 max-w-sm" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
+                      <input value={contactName} onChange={(e) => setContactName(e.target.value)} placeholder="Name (e.g. Maa, Rohan)"
+                        className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none mb-2" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', color: 'var(--text)' }} />
+                      <input value={contactRelationship} onChange={(e) => setContactRelationship(e.target.value)} placeholder="Relationship (e.g. Mother, Best friend) — optional"
+                        className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none mb-2" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', color: 'var(--text)' }} />
+                      <input value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} placeholder="their@email.com" type="email"
+                        className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none mb-2" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', color: 'var(--text)' }} />
+                      <input value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} placeholder="Phone number — optional" type="tel"
+                        className="w-full text-[13px] rounded-xl px-3.5 py-2.5 outline-none mb-3" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', color: 'var(--text)' }} />
+                      {contactError && <p className="text-xs mb-2.5" style={{ color: '#C0523A' }}>{contactError}</p>}
+                      <div className="flex gap-2">
+                        <button onClick={() => { setShowContactForm(false); setContactError(''); }} className="flex-1 py-2 rounded-full text-[13px] font-semibold" style={{ border: '1px solid var(--card-border)', color: 'var(--text)' }}>
+                          Cancel
+                        </button>
+                        <button onClick={addEmergencyContact} disabled={contactSaving} className="flex-1 py-2 rounded-full text-[13px] font-semibold" style={{ background: 'var(--ink)', color: 'var(--ink-text)', opacity: contactSaving ? 0.6 : 1 }}>
+                          {contactSaving ? 'Saving…' : 'Add contact'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
