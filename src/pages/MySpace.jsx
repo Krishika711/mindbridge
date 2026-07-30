@@ -963,7 +963,7 @@ export default function MySpace() {
   };
 
   return (
-    <div className="app app-shell flex flex-col" data-theme={theme} data-mode={mode}>
+    <div className="app app-shell flex flex-col" data-theme={theme} data-mode={mode} style={{ height: '100vh', overflow: 'hidden' }}>
       <MoodBackground showCelestial={false} />
       <Header onSignOut={() => { signOut(); navigate('/'); }} showMoodSwitcher
         right={
