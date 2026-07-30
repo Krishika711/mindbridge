@@ -129,7 +129,7 @@ function PhotoRow({ small = false, photos, onAdd, onRemove }) {
         </div>
       ))}
       <input id={inputId} type="file" accept="image/*" multiple onChange={handleFiles} className="hidden" />
-      <label htmlFor={inputId} className={`${size} rounded-xl flex items-center justify-center cursor-pointer text-xl flex-shrink-0`}
+      <label htmlFor={inputId} className={`${size} rounded-xl flex items-center justify-center cursor-pointer text-xl shrink-0`}
         style={{ border: '1.5px dashed var(--card-border)', color: 'var(--accent-deep)' }}>+</label>
     </div>
   );
@@ -182,7 +182,7 @@ function ChatHistoryItem({ item, active, onOpen, onDelete, onRename }) {
           <div className="text-sm font-medium truncate">{item.title || item.snippet}</div>
         )}
       </div>
-      <div className="flex items-center gap-2.5 flex-shrink-0">
+      <div className="flex items-center gap-2.5 shrink-0">
         <button onClick={(e) => { e.stopPropagation(); setEditing(true); }} className="text-xs opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: 'var(--accent-deep)' }} title="Rename">✎</button>
         <button onClick={(e) => { e.stopPropagation(); onDelete(item.sessionId); }} className="text-xs opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: '#C0523A' }}>Delete</button>
       </div>
@@ -239,7 +239,7 @@ function JournalWrittenCard({ entry, onUpdate, onDelete }) {
             autoFocus
             value={text}
             onChange={(e) => setText(e.target.value)}
-            className="w-full min-h-[90px] resize-none outline-none text-[15px] leading-relaxed bg-transparent mb-3"
+            className="w-full min-h-22.5 resize-none outline-none text-[15px] leading-relaxed bg-transparent mb-3"
             style={{ fontFamily: 'var(--font-display)', color: 'var(--text)' }}
           />
           <div className="flex gap-2">
@@ -346,7 +346,7 @@ function JournalLightbox({ entry, onClose, onUpdate, onDelete }) {
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-5" style={{ background: 'rgba(0,0,0,0.6)' }} onClick={onClose}>
+    <div className="fixed inset-0 z-60 flex items-center justify-center p-5" style={{ background: 'rgba(0,0,0,0.6)' }} onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
         className="rounded-2xl overflow-hidden relative"
@@ -980,9 +980,9 @@ export default function MySpace() {
         Welcome back, {userName || 'Friend'} · feeling <span style={{ color: 'var(--accent-deep)', fontWeight: 600 }}>{mood}</span> today
       </div>
 
-      <main className={`relative z-10 flex-1 p-6 px-9 min-h-0 ${responding ? `grid gap-5 grid-cols-1 ${sidebarOpen ? 'md:grid-cols-[2.3fr_1fr]' : 'md:grid-cols-1'}` : 'flex flex-col'}`}>
+      <main className={`relative z-10 flex-1 p-6 px-9 min-h-0 ${responding ? `grid gap-5 grid-cols-1 grid-rows-[minmax(0,1fr)] ${sidebarOpen ? 'md:grid-cols-[2.3fr_1fr]' : 'md:grid-cols-1'}` : 'flex flex-col'}`}>
         {responding && (
-          <section className="flex flex-col rounded-[22px] p-6 backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', boxShadow: '0 20px 50px -30px rgba(80,50,10,0.3)' }}>
+          <section className="flex flex-col min-h-0 rounded-[22px] p-6 backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', boxShadow: '0 20px 50px -30px rgba(80,50,10,0.3)' }}>
             {crisisVisible && (
               <div className="flex items-start justify-between gap-3 rounded-2xl px-4 py-3 mb-3.5 text-[12.5px] leading-relaxed" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}>
                 <span>
@@ -1086,13 +1086,13 @@ export default function MySpace() {
           {responding ? (
             sidebarOpen && (
             <motion.section key="side" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="rounded-[22px] p-6 flex flex-col gap-6 overflow-y-auto backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', boxShadow: '0 20px 50px -30px rgba(80,50,10,0.3)' }}>
+              className="rounded-[22px] p-6 flex flex-col gap-6 overflow-y-auto min-h-0 backdrop-blur-md" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', boxShadow: '0 20px 50px -30px rgba(80,50,10,0.3)' }}>
               <div>
                 <div className="text-[11.5px] font-bold tracking-[1.4px] uppercase mb-4" style={{ color: 'var(--accent-deep)' }}>History</div>
                 {allSessions.length === 0 && (
                   <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{isGuest ? 'Sign in to save your chat history.' : 'Past chats will show up here.'}</div>
                 )}
-                <div className={showAllSessions ? 'max-h-[260px] overflow-y-auto pr-1 -mr-1' : ''}>
+                <div className={showAllSessions ? 'max-h-65 overflow-y-auto pr-1 -mr-1' : ''}>
                   {(showAllSessions ? allSessions : allSessions.slice(0, 2)).map((h) => (
                     <ChatHistoryItem key={h.sessionId} item={h} active={h.sessionId === activeSessionId} onOpen={loadSession} onDelete={deleteSession} onRename={renameSession} />
                   ))}
@@ -1124,7 +1124,7 @@ export default function MySpace() {
             )
           ) : (
             <motion.section key="journal" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="flex flex-col md:flex-row w-full flex-1 rounded-2xl overflow-hidden" style={{ border: '1px solid var(--card-border)' }}>
+              className="flex flex-col md:flex-row w-full flex-1 min-h-0 rounded-2xl overflow-hidden" style={{ border: '1px solid var(--card-border)' }}>
               {/* Left: entries list — like Notes' middle pane */}
               <div className="w-full md:w-64 shrink-0 flex flex-col max-h-56 md:max-h-none overflow-hidden border-b md:border-b-0 md:border-r" style={{ background: 'var(--surface)', borderColor: 'var(--card-border)' }}>
                 <div className="flex items-center justify-between px-4 py-3.5 shrink-0" style={{ borderBottom: '1px solid var(--card-border)' }}>
