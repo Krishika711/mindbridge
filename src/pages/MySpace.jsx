@@ -509,8 +509,8 @@ export default function MySpace() {
   const [thinking, setThinking] = useState(false);
   const [crisisVisible, setCrisisVisible] = useState(false);
   const [alertSent, setAlertSent] = useState(false);
-  const [contactName, setContactName] = useState('');
-  const [contactEmail, setContactEmail] = useState('');
+  const [alertedContactNames, setAlertedContactNames] = useState([]);
+  const [emergencyContacts, setEmergencyContacts] = useState([]);
   const [editingIndex, setEditingIndex] = useState(null);
   const [editingText, setEditingText] = useState('');
   const [showHistory, setShowHistory] = useState(false);
@@ -623,10 +623,9 @@ export default function MySpace() {
       .from('emergency_contacts')
       .select('contact_name, contact_email')
       .eq('user_id', session.user.id)
-      .maybeSingle()
       .then(({ data, error }) => {
-        if (error) { console.error('emergency contact load failed:', error.message); return; }
-        if (data) { setContactName(data.contact_name || ''); setContactEmail(data.contact_email || ''); }
+        if (error) { console.error('emergency contacts load failed:', error.message); return; }
+        setEmergencyContacts(data || []);
       });
   }, [session, loadSessions]);
 
@@ -835,13 +834,16 @@ export default function MySpace() {
     const score = await claudeScore(nextThread, signal);
     if (score?.needs_alert && score.crisis_risk >= 7) {
       setCrisisVisible(true);
-      if (contactName && contactEmail) {
-        try {
-          await sendEmergencyAlert(contactName, contactEmail, userName, triggerText, score.crisis_risk);
-          setAlertSent(true);
-        } catch (emailErr) {
-          console.error('emergency alert email failed:', emailErr?.text || emailErr?.message || emailErr);
-        }
+      if (emergencyContacts.length) {
+        const results = await Promise.allSettled(
+          emergencyContacts.map((c) => sendEmergencyAlert(c.contact_name, c.contact_email, userName, triggerText, score.crisis_risk))
+        );
+        const sentTo = [];
+        results.forEach((r, i) => {
+          if (r.status === 'fulfilled') sentTo.push(emergencyContacts[i].contact_name);
+          else console.error('emergency alert email failed:', emergencyContacts[i].contact_email, r.reason?.text || r.reason?.message || r.reason);
+        });
+        if (sentTo.length) { setAlertSent(true); setAlertedContactNames(sentTo); }
       }
     }
   };
@@ -987,7 +989,7 @@ export default function MySpace() {
               <div className="flex items-start justify-between gap-3 rounded-2xl px-4 py-3 mb-3.5 text-[12.5px] leading-relaxed" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}>
                 <span>
                   🌙 It is understanble and you're not alone.
-                  {alertSent && contactName && <span style={{ color: 'var(--accent-deep)' }}> · {contactName} ko quietly inform kar diya gaya hai.</span>}
+                  {alertSent && alertedContactNames.length > 0 && <span style={{ color: 'var(--accent-deep)' }}> · {alertedContactNames.join(', ')} ko quietly inform kar diya gaya hai.</span>}
                 </span>
                 <button onClick={() => setCrisisVisible(false)} style={{ color: 'var(--text-faint)' }}>✕</button>
               </div>
