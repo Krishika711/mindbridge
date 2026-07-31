@@ -112,15 +112,41 @@ function PopSplash({ left, top }) {
   );
 }
 
-function SmileOverlay({ countdown, onDismiss }) {
+function SmileOverlay({ countdown, onDismiss, total = 10 }) {
+  const progress = countdown / total;
   return (
-    <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 rounded-2xl px-5 py-3.5 flex items-center gap-3 backdrop-blur-md" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)', boxShadow: '0 12px 30px -12px rgba(0,0,0,0.3)', maxWidth: 320 }}>
-      <div className="text-2xl shrink-0">🙂</div>
-      <div className="flex-1">
-        <div className="text-[12.5px] font-medium leading-snug" style={{ color: 'var(--text)' }}>Pause for a second — try smiling, even a little.</div>
-        <div className="text-[11px] mt-0.5" style={{ color: 'var(--text-faint)' }}>{countdown}s</div>
+    <div className="absolute inset-0 z-20 flex items-center justify-center backdrop-blur-md" style={{ background: 'rgba(255,255,255,0.3)' }}>
+      <div className="rounded-3xl px-8 py-7 flex flex-col items-center gap-4 text-center" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)', boxShadow: '0 20px 50px -20px rgba(0,0,0,0.3)', maxWidth: 300 }}>
+        <div className="relative w-20 h-20 flex items-center justify-center">
+          <motion.div
+            className="absolute inset-0 rounded-full"
+            style={{ background: 'var(--accent)', opacity: 0.25 }}
+            animate={{ scale: [1, 1.35, 1] }}
+            transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
+          />
+          <div
+            className="absolute inset-0 rounded-full"
+            style={{
+              background: `conic-gradient(var(--accent-deep) ${(1 - progress) * 360}deg, transparent 0deg)`,
+              WebkitMask: 'radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 4px))',
+              mask: 'radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 4px))',
+              transition: 'background 0.9s linear',
+            }}
+          />
+          <motion.div
+            className="text-3xl relative"
+            animate={{ scale: [1, 1.15, 1] }}
+            transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
+          >
+            🙂
+          </motion.div>
+        </div>
+        <div>
+          <div className="text-[13.5px] font-medium leading-snug" style={{ color: 'var(--text)' }}>Try smiling, even a little — just for a few seconds.</div>
+          <div className="text-[11px] mt-1" style={{ color: 'var(--text-faint)' }}>{countdown}s</div>
+        </div>
+        <button onClick={onDismiss} className="text-[11.5px]" style={{ color: 'var(--text-faint)' }}>Not now</button>
       </div>
-      <button onClick={onDismiss} className="text-[11px] shrink-0" style={{ color: 'var(--text-faint)' }}>Not now</button>
     </div>
   );
 }
@@ -162,8 +188,8 @@ export default function CalmSpace() {
   const checkFastTyping = () => {
     const now = Date.now();
     keystrokeTimesRef.current.push(now);
-    keystrokeTimesRef.current = keystrokeTimesRef.current.filter((t) => now - t < 2000);
-    return keystrokeTimesRef.current.length > 24; // sustained >12 keystrokes/sec over 2s
+    keystrokeTimesRef.current = keystrokeTimesRef.current.filter((t) => now - t < 1500);
+    return keystrokeTimesRef.current.length > 12; // sustained >8 keystrokes/sec over 1.5s
   };
 
   const maybeTriggerSmile = (text) => {
