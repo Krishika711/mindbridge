@@ -657,7 +657,7 @@ export default function CalmSpace() {
             )}
             <div className="flex flex-col gap-2.5">
               {entries.map((e) => (
-                <div key={e.id} className="rounded-2xl p-4" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
+                <div key={e.id} className="rounded-2xl p-4 overflow-hidden" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
                   <div className="flex items-center gap-2 mb-1.5">
                     <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{formatDateLabel(e.created_at)}</div>
                     {e.source === 'manifestation' && (
@@ -667,7 +667,7 @@ export default function CalmSpace() {
                       <div className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)', color: 'var(--accent-deep)' }}>core pillar</div>
                     )}
                   </div>
-                  <p className="text-sm italic leading-relaxed" style={{ fontFamily: 'var(--font-display)', color: 'var(--text)' }}>
+                  <p className="text-sm italic leading-relaxed break-words" style={{ fontFamily: 'var(--font-display)', color: 'var(--text)' }}>
                     {e.text.length > 200 ? e.text.slice(0, 200) + '…' : e.text}
                   </p>
                 </div>
