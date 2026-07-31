@@ -420,7 +420,7 @@ export default function CalmSpace() {
                     onChange={(e) => setFlowText(e.target.value)}
                     onKeyDown={handleFlowKeyDown}
                     placeholder="Start typing and don't stop…"
-                    className="w-full resize-none outline-none border-none bg-transparent italic text-xl leading-relaxed min-h-[220px]"
+                    className="w-full resize-none outline-none border-none bg-transparent italic text-xl leading-relaxed min-h-55"
                     style={{ fontFamily: 'var(--font-display)', color: 'var(--text)' }}
                   />
                   <button
@@ -667,7 +667,7 @@ export default function CalmSpace() {
                       <div className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)', color: 'var(--accent-deep)' }}>core pillar</div>
                     )}
                   </div>
-                  <p className="text-sm italic leading-relaxed break-words" style={{ fontFamily: 'var(--font-display)', color: 'var(--text)' }}>
+                  <p className="text-sm italic leading-relaxed wrap-break-word" style={{ fontFamily: 'var(--font-display)', color: 'var(--text)' }}>
                     {e.text.length > 200 ? e.text.slice(0, 200) + '…' : e.text}
                   </p>
                 </div>
