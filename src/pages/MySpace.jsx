@@ -171,6 +171,34 @@ function PhotoRow({ small = false, photos, onAdd, onRemove }) {
   );
 }
 
+function ChatPhotoGrid({ photos, onAdd, onRemove, onOpen }) {
+  const handleFiles = (e) => {
+    const files = Array.from(e.target.files || []);
+    files.forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = () => onAdd(reader.result);
+      reader.readAsDataURL(file);
+    });
+    e.target.value = '';
+  };
+  return (
+    <div className="grid grid-cols-4 gap-2.5">
+      {photos.map((p) => (
+        <div key={p.id} className="aspect-square rounded-xl relative overflow-hidden group" style={{ border: '1px solid var(--card-border)' }}>
+          <button onClick={() => onOpen(p)} className="w-full h-full block" aria-label="Open photo">
+            <img src={p.mediaUrl} alt="" className="w-full h-full object-cover" />
+          </button>
+          <button onClick={(e) => { e.stopPropagation(); onRemove(p.id); }} className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full text-[9px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+            style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }} aria-label="Remove photo">✕</button>
+        </div>
+      ))}
+      <input id="chat-photo-input" type="file" accept="image/*" multiple onChange={handleFiles} className="hidden" />
+      <label htmlFor="chat-photo-input" className="aspect-square rounded-xl flex items-center justify-center cursor-pointer text-xl flex-shrink-0"
+        style={{ border: '1.5px dashed var(--card-border)', color: 'var(--accent-deep)' }}>+</label>
+    </div>
+  );
+}
+
 function GuestLockedPane({ label, onUnlock }) {
   return (
     <div className="flex-1 flex flex-col items-center justify-center gap-3.5 rounded-2xl text-center p-8" style={{ background: 'var(--surface)', border: '1px solid var(--card-border)' }}>
@@ -364,9 +392,10 @@ function JournalMediaThumb({ entry, onOpen }) {
   );
 }
 
-function JournalLightbox({ entry, onClose, onUpdate, onDelete }) {
+function JournalLightbox({ entry, onClose, onUpdate, onDelete, isDrawing = false, onSaveDrawing }) {
   const [title, setTitle] = useState(entry.title || '');
   const [saving, setSaving] = useState(false);
+  const [editingDrawing, setEditingDrawing] = useState(false);
 
   const save = async () => {
     setSaving(true);
@@ -389,8 +418,22 @@ function JournalLightbox({ entry, onClose, onUpdate, onDelete }) {
         style={{ width: 'min(480px, 92vw)', background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}
       >
         <button onClick={onClose} className="absolute top-3 right-3 w-7 h-7 rounded-full flex items-center justify-center text-sm z-10" style={{ background: 'var(--surface-strong)', color: 'var(--text-soft)' }}>✕</button>
-        {entry.mediaUrl && (
-          <img src={entry.mediaUrl} alt="" className="w-full object-contain" style={{ maxHeight: '65vh', background: 'var(--surface)' }} />
+        {editingDrawing ? (
+          <div className="p-4" style={{ background: 'var(--surface)' }}>
+            <DrawCanvas
+              initialImage={entry.mediaUrl}
+              onSaved={async (path) => {
+                setSaving(true);
+                await onSaveDrawing(entry.id, path);
+                setSaving(false);
+                setEditingDrawing(false);
+              }}
+            />
+          </div>
+        ) : (
+          entry.mediaUrl && (
+            <img src={entry.mediaUrl} alt="" className="w-full object-contain" style={{ maxHeight: '65vh', background: 'var(--surface)' }} />
+          )
         )}
         <div className="p-5">
           <input
@@ -404,6 +447,11 @@ function JournalLightbox({ entry, onClose, onUpdate, onDelete }) {
             <button onClick={remove} className="text-xs font-medium" style={{ color: 'var(--text-faint)' }}>Delete</button>
             <div className="flex items-center gap-2">
               <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{entry.date}</div>
+              {isDrawing && !editingDrawing && (
+                <button onClick={() => setEditingDrawing(true)} className="text-xs font-semibold px-3.5 py-1.5 rounded-full" style={{ border: '1px solid var(--card-border)', color: 'var(--accent-deep)' }}>
+                  Edit drawing
+                </button>
+              )}
               <button onClick={save} disabled={saving} className="text-xs font-semibold px-3.5 py-1.5 rounded-full" style={{ border: '1px solid var(--card-border)', color: 'var(--text-soft)', opacity: saving ? 0.6 : 1 }}>
                 {saving ? 'Saving…' : 'Save name'}
               </button>
@@ -430,9 +478,16 @@ const HISTORY_CATEGORIES = [
   { key: 'photo', label: 'Photos', hint: 'Snapshots you can watch back — edit the name anytime.' },
 ];
 
-function HistoryOverlay({ entries, loading, onClose, onUpdate, onDelete, onDeleteField }) {
+const HISTORY_SIZE_PRESETS = {
+  sm: 'max-w-md max-h-[55vh]',
+  md: 'max-w-2xl max-h-[85vh]',
+  lg: 'max-w-5xl max-h-[92vh]',
+};
+
+function HistoryOverlay({ entries, loading, onClose, onUpdate, onDelete, onDeleteField, onSaveDrawing }) {
   const [category, setCategory] = useState('text');
   const [lightboxEntry, setLightboxEntry] = useState(null);
+  const [size, setSize] = useState('md');
 
   const grouped = HISTORY_CATEGORIES.map((c) => ({
     ...c,
@@ -449,13 +504,26 @@ function HistoryOverlay({ entries, loading, onClose, onUpdate, onDelete, onDelet
     <div className="fixed inset-0 z-50 flex items-center justify-center p-5" style={{ background: 'rgba(0,0,0,0.5)' }} onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-2xl max-h-[85vh] flex flex-col md:flex-row rounded-2xl overflow-hidden"
+        className={`w-full ${HISTORY_SIZE_PRESETS[size]} flex flex-col md:flex-row rounded-2xl overflow-hidden transition-[max-width,max-height] duration-200`}
         style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}
       >
         {/* Left: category rail — mirrors the journal editor's sidebar */}
         <div className="w-full md:w-52 shrink-0 flex flex-col overflow-hidden border-b md:border-b-0 md:border-r" style={{ background: 'var(--surface)', borderColor: 'var(--card-border)' }}>
           <div className="hidden md:flex items-center justify-between px-4 py-3.5 shrink-0" style={{ borderBottom: '1px solid var(--card-border)' }}>
             <div className="text-[15px] font-semibold" style={{ color: 'var(--text)' }}>History</div>
+            <div className="flex items-center gap-1">
+              {['sm', 'md', 'lg'].map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setSize(s)}
+                  title={s === 'sm' ? 'Minimize' : s === 'md' ? 'Default size' : 'Maximize'}
+                  className="w-5 h-5 rounded-full text-[9.5px] font-bold flex items-center justify-center"
+                  style={size === s ? { background: 'var(--card-bg)', color: 'var(--accent-deep)' } : { color: 'var(--text-faint)' }}
+                >
+                  {s === 'sm' ? 'S' : s === 'md' ? 'M' : 'L'}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="flex md:flex-col p-2 gap-1 overflow-x-auto md:overflow-visible">
             {grouped.map((c) => (
@@ -478,7 +546,17 @@ function HistoryOverlay({ entries, loading, onClose, onUpdate, onDelete, onDelet
           <div className="flex items-center justify-between px-5 py-3.5 shrink-0" style={{ borderBottom: '1px solid var(--card-border)' }}>
             <div className="text-[15px] font-semibold md:hidden" style={{ color: 'var(--text)' }}>History</div>
             <p className="text-xs hidden md:block" style={{ color: 'var(--text-faint)' }}>{active.hint}</p>
-            <button onClick={onClose} className="w-6 h-6 rounded-full flex items-center justify-center text-xs shrink-0" style={{ color: 'var(--text-faint)' }}>✕</button>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 md:hidden">
+                {['sm', 'md', 'lg'].map((s) => (
+                  <button key={s} onClick={() => setSize(s)} className="w-5 h-5 rounded-full text-[9.5px] font-bold flex items-center justify-center"
+                    style={size === s ? { background: 'var(--surface-strong)', color: 'var(--accent-deep)' } : { color: 'var(--text-faint)' }}>
+                    {s === 'sm' ? 'S' : s === 'md' ? 'M' : 'L'}
+                  </button>
+                ))}
+              </div>
+              <button onClick={onClose} className="w-6 h-6 rounded-full flex items-center justify-center text-xs shrink-0" style={{ color: 'var(--text-faint)' }}>✕</button>
+            </div>
           </div>
           <p className="text-xs px-5 pt-3 md:hidden" style={{ color: 'var(--text-faint)' }}>{active.hint}</p>
 
@@ -522,6 +600,11 @@ function HistoryOverlay({ entries, loading, onClose, onUpdate, onDelete, onDelet
           onClose={() => setLightboxEntry(null)}
           onUpdate={async (id, title) => { await onUpdate(id, title); setLightboxEntry((cur) => (cur ? { ...cur, text_content: title } : cur)); }}
           onDelete={(id) => (lightboxEntry._deleteField ? onDeleteField(id, lightboxEntry._deleteField) : onDelete(id))}
+          isDrawing={category === 'drawing'}
+          onSaveDrawing={async (id, path) => {
+            await onSaveDrawing(id, path);
+            setLightboxEntry(null);
+          }}
         />
       )}
     </div>
@@ -559,6 +642,12 @@ export default function MySpace() {
   const [showChatHistory, setShowChatHistory] = useState(false);
   const [openEntryId, setOpenEntryId] = useState(null);
   const [entryTitle, setEntryTitle] = useState('');
+  // Quick-tool entry (drawing/voice recorded from the chat sidebar's tool tray) is
+  // tracked separately from editingEntryId (the Journal tab's currently-open entry)
+  // so recording here never overwrites whichever journal entry happens to be open.
+  const [quickEntryId, setQuickEntryId] = useState(null);
+  const [quickNote, setQuickNote] = useState('');
+  const [openChatPhoto, setOpenChatPhoto] = useState(null);
   const threadEndRef = useRef(null);
   const controllerRef = useRef(null);
 
@@ -650,6 +739,8 @@ export default function MySpace() {
     setActiveSessionId(crypto.randomUUID());
     setThread([GREETING]);
     setEditingIndex(null);
+    setQuickEntryId(null);
+    setQuickNote('');
   };
 
   useEffect(() => {
@@ -779,13 +870,66 @@ export default function MySpace() {
     saveJournalEntry({ text_content: text });
   };
 
-  // Photos ("Add Photos" quick strip in the sidebar) stay standalone —
-  // not part of the merge-into-current-entry behavior below.
-  const savePhotoEntry = async (path) => {
+  // Mirrors saveJournalEntry, but merges into quickEntryId instead of
+  // editingEntryId — keeps the chat sidebar's quick tools (write/draw/voice)
+  // from ever overwriting whatever entry happens to be open in the Journal tab.
+  const saveQuickEntry = async (fields) => {
     if (!session) return;
-    const { error } = await supabase.from('journal_entries').insert({ user_id: session.user.id, type: 'photo', media_path: path });
+    if (quickEntryId) {
+      const { error } = await supabase.from('journal_entries').update(fields).eq('id', quickEntryId);
+      if (error) { console.error('quick entry save failed:', error.message); return; }
+      loadJournalEntries();
+    } else {
+      const { data, error } = await supabase
+        .from('journal_entries')
+        .insert({ user_id: session.user.id, type: 'text', ...fields })
+        .select('id')
+        .single();
+      if (error) { console.error('quick entry save failed:', error.message); return; }
+      setQuickEntryId(data.id);
+      loadJournalEntries();
+    }
+  };
+
+  const saveQuickNote = () => {
+    const text = quickNote.trim();
+    if (!text) return;
+    saveQuickEntry({ text_content: text });
+  };
+
+  // Photos saved from the Journal tab's own photo row stay standalone — not part
+  // of the merge-into-current-entry behavior below, and they show up in Quiet
+  // Mode's History. Photos added from the chat sidebar use type 'chat-photo'
+  // instead, so they never land in Quiet Mode's history.
+  const savePhotoEntry = async (path, type = 'photo') => {
+    if (!session) return;
+    const { error } = await supabase.from('journal_entries').insert({ user_id: session.user.id, type, media_path: path });
     if (error) { console.error('journal entry save failed:', error.message); return; }
     loadJournalEntries();
+  };
+
+  // Chat-section photo gallery: lives entirely outside Quiet Mode. Persisted
+  // as type 'chat-photo' so it's excluded from journal entry lists and the
+  // Quiet Mode History overlay, but still survives a page reload.
+  const chatPhotos = journalEntries.filter((e) => e.type === 'chat-photo');
+
+  const addChatPhoto = async (src) => {
+    if (isGuest) { setShowGuestGate(true); return; }
+    if (!session) return;
+    const blob = await (await fetch(src)).blob();
+    const path = `${session.user.id}/chat-gallery-${Date.now()}.png`;
+    const { error: uploadErr } = await supabase.storage.from('media').upload(path, blob, { contentType: blob.type || 'image/png' });
+    if (uploadErr) { console.error('chat gallery photo upload failed:', uploadErr.message); return; }
+    savePhotoEntry(path, 'chat-photo');
+  };
+
+  const removeChatPhoto = (id) => deleteJournalEntry(id);
+
+  // A saved drawing re-opened from Quiet Mode History can be edited in place;
+  // this just points the DrawCanvas save target back at the same entry.
+  const saveDrawingEdit = async (id, path) => {
+    await updateJournalEntry(id, { drawing_path: path });
+    await loadJournalEntries();
   };
 
   const selectJournalEntry = (entry) => {
@@ -1111,14 +1255,22 @@ export default function MySpace() {
                       <button onClick={() => setOpenTool(null)} style={{ color: 'var(--text-faint)' }}>✕</button>
                     </div>
                     {openTool === 'write' && (
-                      <textarea value={journal} onChange={(e) => { if (guardGuestWrite(e.target.value)) setJournal(e.target.value); }}
-                        placeholder="Jot something down while you chat..." className="w-full resize-none outline-none border-none bg-transparent text-sm leading-relaxed min-h-25" style={{ color: 'var(--text)' }} />
+                      <>
+                        <textarea value={quickNote} onChange={(e) => { if (guardGuestWrite(e.target.value)) setQuickNote(e.target.value); }}
+                          placeholder="Jot something down while you chat..." className="w-full resize-none outline-none border-none bg-transparent text-sm leading-relaxed min-h-25" style={{ color: 'var(--text)' }} />
+                        <div className="flex justify-end pt-2">
+                          <button onClick={saveQuickNote} disabled={!quickNote.trim()} className="text-[12.5px] font-semibold px-3 py-1.5"
+                            style={{ color: 'var(--accent-deep)', opacity: quickNote.trim() ? 1 : 0.4 }}>
+                            Save
+                          </button>
+                        </div>
+                      </>
                     )}
                     {openTool === 'draw' && (
-                      isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to save your drawings" /> : <DrawCanvas onSendToChat={sendDrawingToChat} onSaved={(path) => saveJournalEntry({ drawing_path: path })} />
+                      isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to save your drawings" /> : <DrawCanvas onSendToChat={sendDrawingToChat} onSaved={(path) => saveQuickEntry({ drawing_path: path })} />
                     )}
                     {openTool === 'voice' && (
-                      isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to record voice notes" /> : <VoiceNotes onSaved={(path) => saveJournalEntry({ voice_path: path })} onSendToChat={sendVoiceToChat} />
+                      isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to record voice notes" /> : <VoiceNotes onSaved={(path) => saveQuickEntry({ voice_path: path })} onSendToChat={sendVoiceToChat} />
                     )}
                   </div>
                 </motion.div>
@@ -1159,7 +1311,7 @@ export default function MySpace() {
 
               <div>
                 <div className="text-[11.5px] font-bold tracking-[1.4px] uppercase mb-4" style={{ color: 'var(--accent-deep)' }}>Add Photos</div>
-                <PhotoRow photos={photos} onAdd={addPhoto} onRemove={removePhoto} />
+                <ChatPhotoGrid photos={chatPhotos} onAdd={addChatPhoto} onRemove={removeChatPhoto} onOpen={setOpenChatPhoto} />
               </div>
 
               <div>
@@ -1184,16 +1336,16 @@ export default function MySpace() {
                   <div>
                     <div className="text-[15px] font-semibold" style={{ color: 'var(--text)' }}>Journal</div>
                     <div className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
-                      {journalEntries.filter((e) => e.type !== 'photo').length} entries
+                      {journalEntries.filter((e) => !['photo','chat-photo'].includes(e.type)).length} entries
                     </div>
                   </div>
                   <button onClick={startNewJournalEntry} className="w-7 h-7 rounded-full flex items-center justify-center text-lg" style={{ color: 'var(--accent-deep)' }} title="New entry">+</button>
                 </div>
                 <div className="flex-1 overflow-y-auto">
-                  {journalEntries.filter((e) => e.type !== 'photo').length === 0 && (
+                  {journalEntries.filter((e) => !['photo','chat-photo'].includes(e.type)).length === 0 && (
                     <div className="text-xs px-4 py-4" style={{ color: 'var(--text-faint)' }}>No entries yet.</div>
                   )}
-                  {journalEntries.filter((e) => e.type !== 'photo').map((e) => {
+                  {journalEntries.filter((e) => !['photo','chat-photo'].includes(e.type)).map((e) => {
                     const titleFallback = e.drawing_path && e.voice_path ? 'Drawing + Voice' : e.drawing_path ? 'Drawing' : e.voice_path ? 'Voice note' : 'New Entry';
                     const preview = e.text_content ? e.text_content.slice(0, 34) : (e.drawing_path || e.voice_path ? '' : 'Empty entry');
                     return (
@@ -1283,7 +1435,15 @@ export default function MySpace() {
       <StormyAlert open={showStormy} onClose={() => setShowStormy(false)} />
       <GuestSignInPrompt open={showGuestGate} onClose={() => setShowGuestGate(false)} />
       {showHistory && (
-        <HistoryOverlay entries={journalEntries} loading={entriesLoading} onClose={() => setShowHistory(false)} onUpdate={updateJournalEntry} onDelete={deleteJournalEntry} onDeleteField={deleteJournalAttachment} />
+        <HistoryOverlay entries={journalEntries} loading={entriesLoading} onClose={() => setShowHistory(false)} onUpdate={updateJournalEntry} onDelete={deleteJournalEntry} onDeleteField={deleteJournalAttachment} onSaveDrawing={saveDrawingEdit} />
+      )}
+      {openChatPhoto && (
+        <JournalLightbox
+          entry={openChatPhoto}
+          onClose={() => setOpenChatPhoto(null)}
+          onUpdate={(id, fields) => updateJournalEntry(id, fields)}
+          onDelete={(id) => removeChatPhoto(id)}
+        />
       )}
     </div>
   );
