@@ -24,10 +24,37 @@ function RecordOverlay({ onClose, onSave }) {
   const [seconds, setSeconds] = useState(0);
   const [showCaption, setShowCaption] = useState(false);
   const [caption, setCaption] = useState('');
+  const [audioBlob, setAudioBlob] = useState(null);
+  const [audioUrl, setAudioUrl] = useState(null);
+  const [micError, setMicError] = useState('');
   const timerRef = useRef(null);
+  const recorderRef = useRef(null);
+  const chunksRef = useRef([]);
+  const streamRef = useRef(null);
 
-  const toggleRecord = () => {
-    if (!recording) {
+  const stopStream = () => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+  };
+
+  useEffect(() => () => { clearInterval(timerRef.current); stopStream(); }, []);
+
+  const startRecording = async () => {
+    setMicError('');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      chunksRef.current = [];
+      const recorder = new MediaRecorder(stream);
+      recorderRef.current = recorder;
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      recorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+        setAudioBlob(blob);
+        setAudioUrl(URL.createObjectURL(blob));
+        stopStream();
+      };
+      recorder.start();
       setRecording(true);
       setShowCaption(false);
       setSeconds(0);
@@ -35,6 +62,7 @@ function RecordOverlay({ onClose, onSave }) {
         setSeconds((s) => {
           if (s + 1 >= 60) {
             clearInterval(timerRef.current);
+            recorder.stop();
             setRecording(false);
             setShowCaption(true);
             return 60;
@@ -42,12 +70,20 @@ function RecordOverlay({ onClose, onSave }) {
           return s + 1;
         });
       }, 1000);
-    } else {
-      clearInterval(timerRef.current);
-      setRecording(false);
-      setShowCaption(true);
+    } catch (err) {
+      console.error('mic access failed:', err.message);
+      setMicError("Couldn't access your mic — check browser permissions and try again.");
     }
   };
+
+  const stopRecording = () => {
+    clearInterval(timerRef.current);
+    recorderRef.current?.stop();
+    setRecording(false);
+    setShowCaption(true);
+  };
+
+  const toggleRecord = () => (recording ? stopRecording() : startRecording());
 
   const mm = Math.floor(seconds / 60);
   const ss = String(seconds % 60).padStart(2, '0');
@@ -64,33 +100,38 @@ function RecordOverlay({ onClose, onSave }) {
         <h3 className="text-lg mb-1" style={{ fontFamily: 'var(--font-display)', fontWeight: 600 }}>Yaps of today</h3>
         <p className="text-xs mb-5" style={{ color: 'var(--text-faint)' }}>Raw and unfiltered. One minute, no re-takes.</p>
 
-        <div className="flex flex-col items-center gap-3 py-2">
-          <button
-            onClick={toggleRecord}
-            className="w-16 h-16 rounded-full flex items-center justify-center text-2xl"
-            style={{ background: '#C0523A', color: '#fff', animation: recording ? 'lanternFlicker 1s ease-in-out infinite' : 'none' }}
-          >
-            {recording ? '■' : '●'}
-          </button>
-          <div className="text-lg" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-soft)' }}>{mm}:{ss}</div>
-        </div>
+        {!showCaption && (
+          <div className="flex flex-col items-center gap-3 py-2">
+            <button
+              onClick={toggleRecord}
+              className="w-16 h-16 rounded-full flex items-center justify-center text-2xl"
+              style={{ background: '#C0523A', color: '#fff', animation: recording ? 'lanternFlicker 1s ease-in-out infinite' : 'none' }}
+            >
+              {recording ? '■' : '●'}
+            </button>
+            <div className="text-lg" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-soft)' }}>{mm}:{ss}</div>
+            {micError && <p className="text-xs text-center max-w-xs" style={{ color: '#C0523A' }}>{micError}</p>}
+          </div>
+        )}
 
         {showCaption && (
           <>
+            {audioUrl && <audio controls src={audioUrl} className="w-full mb-3" style={{ height: 36 }} />}
             <input
               autoFocus
               value={caption}
               onChange={(e) => setCaption(e.target.value)}
               placeholder="Give this yap a subtitle, like 'Passed that exam viva!'"
-              className="w-full text-sm rounded-xl px-3.5 py-2.5 outline-none mt-4 mb-3"
+              className="w-full text-sm rounded-xl px-3.5 py-2.5 outline-none mb-3"
               style={{ background: 'var(--surface)', border: '1px solid var(--card-border)', color: 'var(--text)' }}
             />
             <div className="flex gap-2.5">
               <button onClick={onClose} className="flex-1 py-2.5 rounded-full text-sm font-semibold" style={{ border: '1px solid var(--card-border)', color: 'var(--text)' }}>Cancel</button>
               <button
-                onClick={() => onSave(caption.trim() || 'Untitled yap')}
+                onClick={() => onSave(caption.trim() || 'Untitled yap', audioBlob)}
+                disabled={!audioBlob}
                 className="flex-1 py-2.5 rounded-full text-sm font-semibold"
-                style={{ background: 'var(--ink)', color: 'var(--ink-text)' }}
+                style={{ background: 'var(--ink)', color: 'var(--ink-text)', opacity: audioBlob ? 1 : 0.5 }}
               >
                 Save to tape
               </button>
@@ -120,7 +161,7 @@ function TextOverlay({ title, hint, placeholder, cta, onClose, onSave }) {
           value={val}
           onChange={(e) => setVal(e.target.value)}
           placeholder={placeholder}
-          className="w-full min-h-[110px] resize-none outline-none text-sm rounded-xl px-3.5 py-2.5 mb-4"
+          className="w-full min-h-27.5 resize-none outline-none text-sm rounded-xl px-3.5 py-2.5 mb-4"
           style={{ background: 'var(--surface)', border: '1px solid var(--card-border)', color: 'var(--text)' }}
         />
         <div className="flex gap-2.5">
@@ -201,7 +242,7 @@ export default function HopeVault() {
   const { theme, mode, session, isGuest } = useMood();
   const [unlocked, setUnlocked] = useState(false);
   const [openOverlay, setOpenOverlay] = useState(null);
-  const [session_, setSessionParts] = useState({ voice: null, text: null, photoFile: null, photoPreview: null, letter: null });
+  const [session_, setSessionParts] = useState({ voice: null, voiceBlob: null, text: null, photoFile: null, photoPreview: null, letter: null });
   const [tapes, setTapes] = useState([]);
   const [filing, setFiling] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -211,7 +252,7 @@ export default function HopeVault() {
     setLoading(true);
     const { data, error } = await supabase
       .from('hope_vault_tapes')
-      .select('id, voice_caption, text_scrap, photo_path, letter, created_at')
+      .select('id, voice_caption, voice_path, text_scrap, photo_path, letter, created_at')
       .eq('user_id', session.user.id)
       .order('created_at', { ascending: false });
     setLoading(false);
@@ -225,9 +266,17 @@ export default function HopeVault() {
           if (signErr) console.error('tape photo signed url failed:', signErr.message);
           else photoUrl = signed.signedUrl;
         }
+        let voiceUrl = null;
+        if (t.voice_path) {
+          const { data: signed, error: signErr } = await supabase.storage.from('media').createSignedUrl(t.voice_path, 3600);
+          if (signErr) console.error('tape voice signed url failed:', signErr.message);
+          else voiceUrl = signed.signedUrl;
+        }
         return {
           id: t.id,
           voice: t.voice_caption,
+          voiceUrl,
+          voicePath: t.voice_path,
           text: t.text_scrap,
           photo: photoUrl,
           photoPath: t.photo_path,
@@ -255,6 +304,8 @@ export default function HopeVault() {
   const savePart = (key, value) => {
     if (key === 'photo') {
       setSessionParts((s) => ({ ...s, photoFile: value.file, photoPreview: value.preview }));
+    } else if (key === 'voice') {
+      setSessionParts((s) => ({ ...s, voice: value.caption, voiceBlob: value.blob }));
     } else {
       setSessionParts((s) => ({ ...s, [key]: value }));
     }
@@ -266,12 +317,21 @@ export default function HopeVault() {
     setFiling(true);
 
     if (!session) {
-      // Guest: no persistence, matches every other guest-mode feature in the app
+      // Guest: no persistence, matches every other guest-mode feature in the app.
+      // Still uses a real local blob URL so playback actually works this session.
       setTapes((t) => [
-        { id: Date.now(), voice: session_.voice, text: session_.text, photo: session_.photoPreview, letter: session_.letter, date: 'Just now' },
+        {
+          id: Date.now(),
+          voice: session_.voice,
+          voiceUrl: session_.voiceBlob ? URL.createObjectURL(session_.voiceBlob) : null,
+          text: session_.text,
+          photo: session_.photoPreview,
+          letter: session_.letter,
+          date: 'Just now',
+        },
         ...t,
       ]);
-      setSessionParts({ voice: null, text: null, photoFile: null, photoPreview: null, letter: null });
+      setSessionParts({ voice: null, voiceBlob: null, text: null, photoFile: null, photoPreview: null, letter: null });
       setFiling(false);
       return;
     }
@@ -283,11 +343,20 @@ export default function HopeVault() {
       if (uploadErr) { console.error('tape photo upload failed:', uploadErr.message); photoPath = null; }
     }
 
+    let voicePath = null;
+    if (session_.voiceBlob) {
+      const ext = session_.voiceBlob.type.includes('mp4') ? 'm4a' : session_.voiceBlob.type.includes('ogg') ? 'ogg' : 'webm';
+      voicePath = `${session.user.id}/hope-voice-${Date.now()}.${ext}`;
+      const { error: uploadErr } = await supabase.storage.from('media').upload(voicePath, session_.voiceBlob, { contentType: session_.voiceBlob.type || 'audio/webm' });
+      if (uploadErr) { console.error('tape voice upload failed:', uploadErr.message); voicePath = null; }
+    }
+
     const { data, error } = await supabase
       .from('hope_vault_tapes')
       .insert({
         user_id: session.user.id,
         voice_caption: session_.voice,
+        voice_path: voicePath,
         text_scrap: session_.text,
         photo_path: photoPath,
         letter: session_.letter,
@@ -299,18 +368,29 @@ export default function HopeVault() {
     if (error) { console.error('tape save failed:', error.message); return; }
 
     setTapes((t) => [
-      { id: data.id, voice: session_.voice, text: session_.text, photo: session_.photoPreview, photoPath, letter: session_.letter, date: formatDateLabel(data.created_at) },
+      {
+        id: data.id,
+        voice: session_.voice,
+        voiceUrl: session_.voiceBlob ? URL.createObjectURL(session_.voiceBlob) : null,
+        voicePath,
+        text: session_.text,
+        photo: session_.photoPreview,
+        photoPath,
+        letter: session_.letter,
+        date: formatDateLabel(data.created_at),
+      },
       ...t,
     ]);
-    setSessionParts({ voice: null, text: null, photoFile: null, photoPreview: null, letter: null });
+    setSessionParts({ voice: null, voiceBlob: null, text: null, photoFile: null, photoPreview: null, letter: null });
   };
 
   const deleteTape = async (tape) => {
     setTapes((t) => t.filter((x) => x.id !== tape.id));
     if (!session) return;
-    if (tape.photoPath) {
-      const { error: storageErr } = await supabase.storage.from('media').remove([tape.photoPath]);
-      if (storageErr) console.error('tape photo delete failed:', storageErr.message);
+    const pathsToRemove = [tape.photoPath, tape.voicePath].filter(Boolean);
+    if (pathsToRemove.length) {
+      const { error: storageErr } = await supabase.storage.from('media').remove(pathsToRemove);
+      if (storageErr) console.error('tape media delete failed:', storageErr.message);
     }
     const { error } = await supabase.from('hope_vault_tapes').delete().eq('id', tape.id);
     if (error) console.error('tape delete failed:', error.message);
@@ -414,8 +494,8 @@ export default function HopeVault() {
                     >
                       <button
                         onClick={() => { if (window.confirm('Once deleted, this snippet cannot be recovered.')) deleteTape(t); }}
-                        className="absolute top-3 right-3 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-                        style={{ color: '#C0523A' }}
+                        className="absolute top-3 right-3 text-xs px-2.5 py-1 rounded-full"
+                        style={{ color: '#C0523A', background: 'var(--surface-strong)', border: '1px solid var(--card-border)' }}
                       >
                         Delete
                       </button>
@@ -424,7 +504,14 @@ export default function HopeVault() {
                         <p className="italic text-[15px] leading-relaxed" style={{ fontFamily: 'var(--font-display)', color: 'var(--text)' }}>"{t.text}"</p>
                       )}
                       {t.voice && (
-                        <div className="text-sm flex items-center gap-1.5" style={{ color: 'var(--text-soft)' }}>🎙️ {t.voice}</div>
+                        <div className="flex flex-col gap-1.5">
+                          <div className="text-sm flex items-center gap-1.5" style={{ color: 'var(--text-soft)' }}>🎙️ {t.voice}</div>
+                          {t.voiceUrl ? (
+                            <audio controls src={t.voiceUrl} className="w-full" style={{ height: 34 }} />
+                          ) : (
+                            <div className="text-xs italic" style={{ color: 'var(--text-faint)' }}>Recording unavailable — saved before voice playback was fixed.</div>
+                          )}
+                        </div>
                       )}
                       {t.letter && (
                         <div className="text-sm flex items-center gap-1.5" style={{ color: 'var(--text-soft)' }}>✉️ Sealed letter</div>
@@ -441,7 +528,7 @@ export default function HopeVault() {
 
       <AnimatePresence>
         {openOverlay === 'voice' && (
-          <RecordOverlay onClose={() => setOpenOverlay(null)} onSave={(caption) => savePart('voice', caption)} />
+          <RecordOverlay onClose={() => setOpenOverlay(null)} onSave={(caption, blob) => savePart('voice', { caption, blob })} />
         )}
         {openOverlay === 'text' && (
           <TextOverlay
