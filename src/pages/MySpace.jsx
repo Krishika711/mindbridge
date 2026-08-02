@@ -12,26 +12,58 @@ import DrawCanvas from '../components/DrawCanvas';
 import VoiceNotes from '../components/VoiceNotes';
 import FloatingHope from '../components/FloatingHope';
 
-async function claudeScore(messages, signal) {
+// Real session -> its Supabase access token. Guest -> a short-lived signed
+// token from /api/guest-token, cached per tab so we don't mint a new one on
+// every single message. Neither path identifies who a Guest is — it's an
+// anti-abuse gate, not an account.
+async function getAuthHeaders(session) {
+  if (session?.access_token) {
+    return { Authorization: `Bearer ${session.access_token}` };
+  }
+  let token = sessionStorage.getItem('guestToken');
+  if (!token) {
+    try {
+      const res = await fetch('/api/guest-token', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        token = data.token;
+        sessionStorage.setItem('guestToken', token);
+      }
+    } catch (err) {
+      console.error('guest token fetch failed:', err.message);
+    }
+  }
+  return token ? { 'X-Guest-Token': token } : {};
+}
+
+async function claudeScore(messages, signal, extraHeaders = {}, attempt = 0) {
   const history = messages.map((m) => `${m.from === 'user' ? 'User' : 'AI'}: ${m.text || '[shared a drawing]'}`).join('\n');
   try {
     const res = await fetch('/api/score', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...extraHeaders },
       body: JSON.stringify({ history }),
       signal,
     });
     if (!res.ok) throw new Error(`score failed ${res.status}`);
     return await res.json();
-  } catch {
-    return { crisis_risk: 0, theme: 'okay', needs_alert: false };
+  } catch (err) {
+    if (err.name === 'AbortError') throw err; // an intentional cancel, not a failure — don't retry or mask it
+    if (attempt < 1) {
+      await new Promise((r) => setTimeout(r, 800));
+      return claudeScore(messages, signal, extraHeaders, attempt + 1);
+    }
+    // Never fabricate a safe result on failure. An unscored message is not
+    // the same thing as a message scored "okay" — treating it that way is
+    // exactly what could hide a real crisis during a backend hiccup.
+    return { crisis_risk: null, theme: 'unknown', needs_alert: false, failed: true };
   }
 }
 
-async function claudeRespond(messages, signal) {
+async function claudeRespond(messages, signal, extraHeaders = {}) {
   const res = await fetch('/api/chat', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...extraHeaders },
     body: JSON.stringify({ messages }),
     signal,
   });
@@ -40,10 +72,10 @@ async function claudeRespond(messages, signal) {
   return data.text;
 }
 
-async function claudeRespondToImage(imageDataUrl, signal) {
+async function claudeRespondToImage(imageDataUrl, signal, extraHeaders = {}) {
   const res = await fetch('/api/chat-vision', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...extraHeaders },
     body: JSON.stringify({ imageDataUrl }),
     signal,
   });
@@ -52,10 +84,10 @@ async function claudeRespondToImage(imageDataUrl, signal) {
   return data.text;
 }
 
-async function claudeRespondToVoice(audioDataUrl, signal) {
+async function claudeRespondToVoice(audioDataUrl, signal, extraHeaders = {}) {
   const res = await fetch('/api/chat-voice', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...extraHeaders },
     body: JSON.stringify({ audioDataUrl }),
     signal,
   });
@@ -65,14 +97,19 @@ async function claudeRespondToVoice(audioDataUrl, signal) {
 }
 
 async function sendEmergencyAlert(contactName, contactEmail, userName, triggerMessage, riskLevel) {
-  const publicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
-  if (!publicKey) throw new Error('VITE_EMAILJS_PUBLIC_KEY is missing at build time — check Vercel env vars and redeploy.');
-  emailjs.init(publicKey);
-  return emailjs.send(
-    import.meta.env.VITE_EMAILJS_SERVICE_ID,
-    import.meta.env.VITE_EMAILJS_TEMPLATE_ID,
-    { to_name: contactName, to_email: contactEmail, user_name: userName || 'Someone you care about', message: triggerMessage, risk_level: riskLevel, app_name: 'MindBridge+' }
-  );
+  const res = await fetch('/api/send-alert', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contact_name: contactName,
+      contact_email: contactEmail,
+      user_name: userName,
+      message: triggerMessage,
+      risk_level: riskLevel,
+    }),
+  });
+  if (!res.ok) throw new Error(`send-alert failed ${res.status}`);
+  return res.json();
 }
 
 function formatDateLabel(iso) {
@@ -128,7 +165,7 @@ function PhotoRow({ small = false, photos, onAdd, onRemove }) {
         </div>
       ))}
       <input id={inputId} type="file" accept="image/*" multiple onChange={handleFiles} className="hidden" />
-      <label htmlFor={inputId} className={`${size} rounded-xl flex items-center justify-center cursor-pointer text-xl shrink-0`}
+      <label htmlFor={inputId} className={`${size} rounded-xl flex items-center justify-center cursor-pointer text-xl flex-shrink-0`}
         style={{ border: '1.5px dashed var(--card-border)', color: 'var(--accent-deep)' }}>+</label>
     </div>
   );
@@ -181,7 +218,7 @@ function ChatHistoryItem({ item, active, onOpen, onDelete, onRename }) {
           <div className="text-sm font-medium truncate">{item.title || item.snippet}</div>
         )}
       </div>
-      <div className="flex items-center gap-2.5 shrink-0">
+      <div className="flex items-center gap-2.5 flex-shrink-0">
         <button onClick={(e) => { e.stopPropagation(); setEditing(true); }} className="text-xs opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: 'var(--accent-deep)' }} title="Rename">✎</button>
         <button onClick={(e) => { e.stopPropagation(); onDelete(item.sessionId); }} className="text-xs opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: '#C0523A' }}>Delete</button>
       </div>
@@ -238,7 +275,7 @@ function JournalWrittenCard({ entry, onUpdate, onDelete }) {
             autoFocus
             value={text}
             onChange={(e) => setText(e.target.value)}
-            className="w-full min-h-22.5 resize-none outline-none text-[15px] leading-relaxed bg-transparent mb-3"
+            className="w-full min-h-[90px] resize-none outline-none text-[15px] leading-relaxed bg-transparent mb-3"
             style={{ fontFamily: 'var(--font-display)', color: 'var(--text)' }}
           />
           <div className="flex gap-2">
@@ -345,7 +382,7 @@ function JournalLightbox({ entry, onClose, onUpdate, onDelete }) {
   };
 
   return (
-    <div className="fixed inset-0 z-60 flex items-center justify-center p-5" style={{ background: 'rgba(0,0,0,0.6)' }} onClick={onClose}>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-5" style={{ background: 'rgba(0,0,0,0.6)' }} onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
         className="rounded-2xl overflow-hidden relative"
@@ -505,13 +542,12 @@ export default function MySpace() {
   const [showStormy, setShowStormy] = useState(false);
   const [showGuestGate, setShowGuestGate] = useState(false);
   const [photos, setPhotos] = useState([]);
-  const [chatPhotos, setChatPhotos] = useState([]);
-  const [chatPhotosLoading, setChatPhotosLoading] = useState(true);
   const [thinking, setThinking] = useState(false);
   const [crisisVisible, setCrisisVisible] = useState(false);
+  const [scoreCheckFailed, setScoreCheckFailed] = useState(false);
   const [alertSent, setAlertSent] = useState(false);
-  const [alertedContactNames, setAlertedContactNames] = useState([]);
-  const [emergencyContacts, setEmergencyContacts] = useState([]);
+  const [contactName, setContactName] = useState('');
+  const [contactEmail, setContactEmail] = useState('');
   const [editingIndex, setEditingIndex] = useState(null);
   const [editingText, setEditingText] = useState('');
   const [showHistory, setShowHistory] = useState(false);
@@ -624,9 +660,10 @@ export default function MySpace() {
       .from('emergency_contacts')
       .select('contact_name, contact_email')
       .eq('user_id', session.user.id)
+      .maybeSingle()
       .then(({ data, error }) => {
-        if (error) { console.error('emergency contacts load failed:', error.message); return; }
-        setEmergencyContacts(data || []);
+        if (error) { console.error('emergency contact load failed:', error.message); return; }
+        if (data) { setContactName(data.contact_name || ''); setContactEmail(data.contact_email || ''); }
       });
   }, [session, loadSessions]);
 
@@ -671,7 +708,6 @@ export default function MySpace() {
   // Merges into the currently-open entry (editingEntryId) if there is one,
   // otherwise starts a new entry and keeps it open so the next save (from
   // another tab) merges into the same row — that continues until "+ New Entry".
-  // Only used for text now — see saveDrawingEntry/saveVoiceEntry below.
   const saveJournalEntry = async (fields) => {
     if (!session) return;
     if (editingEntryId) {
@@ -689,23 +725,6 @@ export default function MySpace() {
       setEditingEntryId(data.id);
       loadJournalEntries();
     }
-  };
-
-  // Drawings and voice notes always become their own fresh entry — they never
-  // merge into whatever entry happened to still be "open" from browsing the list,
-  // which was silently overwriting older entries' media with newer recordings.
-  const saveDrawingEntry = async (path) => {
-    if (!session) return;
-    const { error } = await supabase.from('journal_entries').insert({ user_id: session.user.id, type: 'drawing', drawing_path: path });
-    if (error) { console.error('journal entry save failed:', error.message); return; }
-    loadJournalEntries();
-  };
-
-  const saveVoiceEntry = async (path) => {
-    if (!session) return;
-    const { error } = await supabase.from('journal_entries').insert({ user_id: session.user.id, type: 'voice', voice_path: path });
-    if (error) { console.error('journal entry save failed:', error.message); return; }
-    loadJournalEntries();
   };
 
   const updateJournalEntry = async (id, fields) => {
@@ -793,53 +812,6 @@ export default function MySpace() {
   };
   const removePhoto = (i) => setPhotos((p) => p.filter((_, idx) => idx !== i));
 
-  // Responding-mode "Add Photos" gallery — deliberately its own table (chat_photos),
-  // completely separate from journal_entries, so these never show up in Quiet Mode's History.
-  const loadChatPhotos = useCallback(async () => {
-    if (!session) { setChatPhotosLoading(false); return; }
-    setChatPhotosLoading(true);
-    const { data, error } = await supabase
-      .from('chat_photos')
-      .select('id, storage_path, created_at')
-      .eq('user_id', session.user.id)
-      .order('created_at', { ascending: false });
-    setChatPhotosLoading(false);
-    if (error) { console.error('chat photos load failed:', error.message); return; }
-    const resolved = await Promise.all(
-      (data || []).map(async (p) => {
-        const { data: signed, error: signErr } = await supabase.storage.from('media').createSignedUrl(p.storage_path, 3600);
-        if (signErr) { console.error('chat photo signed url failed:', signErr.message); return null; }
-        return { id: p.id, storagePath: p.storage_path, url: signed.signedUrl };
-      })
-    );
-    setChatPhotos(resolved.filter(Boolean));
-  }, [session]);
-
-  useEffect(() => { loadChatPhotos(); }, [loadChatPhotos]);
-
-  const addChatPhoto = async (src) => {
-    if (isGuest) { setShowGuestGate(true); return; }
-    if (!session) return;
-    const blob = await (await fetch(src)).blob();
-    const path = `${session.user.id}/chat-photo-${Date.now()}.png`;
-    const { error: uploadErr } = await supabase.storage.from('media').upload(path, blob, { contentType: blob.type || 'image/png' });
-    if (uploadErr) { console.error('chat photo upload failed:', uploadErr.message); return; }
-    const { data, error } = await supabase.from('chat_photos').insert({ user_id: session.user.id, storage_path: path }).select('id').single();
-    if (error) { console.error('chat photo save failed:', error.message); return; }
-    const { data: signed } = await supabase.storage.from('media').createSignedUrl(path, 3600);
-    setChatPhotos((p) => [{ id: data.id, storagePath: path, url: signed?.signedUrl }, ...p]);
-  };
-
-  const removeChatPhoto = async (index) => {
-    const target = chatPhotos[index];
-    if (!target) return;
-    setChatPhotos((p) => p.filter((_, i) => i !== index));
-    const { error: storageErr } = await supabase.storage.from('media').remove([target.storagePath]);
-    if (storageErr) console.error('chat photo file delete failed:', storageErr.message);
-    const { error } = await supabase.from('chat_photos').delete().eq('id', target.id);
-    if (error) console.error('chat photo delete failed:', error.message);
-  };
-
   const guardGuestWrite = (nextValue) => {
     if (isGuest && nextValue.length === 1) { setShowGuestGate(true); return false; }
     return true;
@@ -883,7 +855,8 @@ export default function MySpace() {
     const controller = new AbortController();
     controllerRef.current = controller;
     try {
-      const reply = await claudeRespondToVoice(dataUrl, controller.signal);
+      const headers = await getAuthHeaders(session);
+      const reply = await claudeRespondToVoice(dataUrl, controller.signal, headers);
       const savedAi = await saveMessage('ai', reply);
       setThread((t) => [...t, { from: 'wisp', text: reply, image: null, audio: null, id: savedAi?.id ?? null, created_at: savedAi?.created_at ?? null }]);
       loadSessions();
@@ -896,20 +869,22 @@ export default function MySpace() {
   };
 
 
-  const runCrisisCheck = async (nextThread, triggerText, signal) => {
-    const score = await claudeScore(nextThread, signal);
+  const runCrisisCheck = async (nextThread, triggerText, signal, headers) => {
+    const score = await claudeScore(nextThread, signal, headers);
+    if (score?.failed) {
+      setScoreCheckFailed(true);
+      return;
+    }
+    setScoreCheckFailed(false);
     if (score?.needs_alert && score.crisis_risk >= 7) {
       setCrisisVisible(true);
-      if (emergencyContacts.length) {
-        const results = await Promise.allSettled(
-          emergencyContacts.map((c) => sendEmergencyAlert(c.contact_name, c.contact_email, userName, triggerText, score.crisis_risk))
-        );
-        const sentTo = [];
-        results.forEach((r, i) => {
-          if (r.status === 'fulfilled') sentTo.push(emergencyContacts[i].contact_name);
-          else console.error('emergency alert email failed:', emergencyContacts[i].contact_email, r.reason?.text || r.reason?.message || r.reason);
-        });
-        if (sentTo.length) { setAlertSent(true); setAlertedContactNames(sentTo); }
+      if (contactName && contactEmail) {
+        try {
+          await sendEmergencyAlert(contactName, contactEmail, userName, triggerText, score.crisis_risk);
+          setAlertSent(true);
+        } catch (emailErr) {
+          console.error('emergency alert email failed:', emailErr?.text || emailErr?.message || emailErr);
+        }
       }
     }
   };
@@ -929,7 +904,8 @@ export default function MySpace() {
     const controller = new AbortController();
     controllerRef.current = controller;
     try {
-      const [reply] = await Promise.all([claudeRespond(nextThread, controller.signal), runCrisisCheck(nextThread, text, controller.signal)]);
+      const headers = await getAuthHeaders(session);
+      const [reply] = await Promise.all([claudeRespond(nextThread, controller.signal, headers), runCrisisCheck(nextThread, text, controller.signal, headers)]);
       const savedAi = await saveMessage('ai', reply);
       setThread((t) => [...t, { from: 'wisp', text: reply, image: null, id: savedAi?.id ?? null, created_at: savedAi?.created_at ?? null }]);
       loadSessions();
@@ -965,7 +941,8 @@ export default function MySpace() {
     const controller = new AbortController();
     controllerRef.current = controller;
     try {
-      const reply = await claudeRespondToImage(dataUrl, controller.signal);
+      const headers = await getAuthHeaders(session);
+      const reply = await claudeRespondToImage(dataUrl, controller.signal, headers);
       const savedAi = await saveMessage('ai', reply);
       setThread((t) => [...t, { from: 'wisp', text: reply, image: null, id: savedAi?.id ?? null, created_at: savedAi?.created_at ?? null }]);
       loadSessions();
@@ -1008,7 +985,8 @@ export default function MySpace() {
     const controller = new AbortController();
     controllerRef.current = controller;
     try {
-      const [reply] = await Promise.all([claudeRespond(truncated, controller.signal), runCrisisCheck(truncated, newText, controller.signal)]);
+      const headers = await getAuthHeaders(session);
+      const [reply] = await Promise.all([claudeRespond(truncated, controller.signal, headers), runCrisisCheck(truncated, newText, controller.signal, headers)]);
       const savedAi = await saveMessage('ai', reply);
       setThread((t) => [...t, { from: 'wisp', text: reply, image: null, id: savedAi?.id ?? null, created_at: savedAi?.created_at ?? null }]);
       loadSessions();
@@ -1055,9 +1033,16 @@ export default function MySpace() {
               <div className="flex items-start justify-between gap-3 rounded-2xl px-4 py-3 mb-3.5 text-[12.5px] leading-relaxed" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}>
                 <span>
                   🌙 It is understanble and you're not alone.
-                  {alertSent && alertedContactNames.length > 0 && <span style={{ color: 'var(--accent-deep)' }}> · {alertedContactNames.join(', ')} ko quietly inform kar diya gaya hai.</span>}
+                  {alertSent && contactName && <span style={{ color: 'var(--accent-deep)' }}> · {contactName} ko quietly inform kar diya gaya hai.</span>}
                 </span>
                 <button onClick={() => setCrisisVisible(false)} style={{ color: 'var(--text-faint)' }}>✕</button>
+              </div>
+            )}
+
+            {scoreCheckFailed && !crisisVisible && (
+              <div className="flex items-start justify-between gap-3 rounded-2xl px-4 py-3 mb-3.5 text-[12.5px] leading-relaxed" style={{ background: 'var(--surface)', border: '1px solid var(--accent-deep)', color: 'var(--text-soft)' }}>
+                <span>Couldn't fully check in on your last message — will try again on the next one.</span>
+                <button onClick={() => setScoreCheckFailed(false)} style={{ color: 'var(--text-faint)' }}>✕</button>
               </div>
             )}
 
@@ -1160,7 +1145,7 @@ export default function MySpace() {
                 {allSessions.length === 0 && (
                   <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{isGuest ? 'Sign in to save your chat history.' : 'Past chats will show up here.'}</div>
                 )}
-                <div className={showAllSessions ? 'max-h-65 overflow-y-auto pr-1 -mr-1' : ''}>
+                <div className={showAllSessions ? 'max-h-[260px] overflow-y-auto pr-1 -mr-1' : ''}>
                   {(showAllSessions ? allSessions : allSessions.slice(0, 2)).map((h) => (
                     <ChatHistoryItem key={h.sessionId} item={h} active={h.sessionId === activeSessionId} onOpen={loadSession} onDelete={deleteSession} onRename={renameSession} />
                   ))}
@@ -1174,8 +1159,7 @@ export default function MySpace() {
 
               <div>
                 <div className="text-[11.5px] font-bold tracking-[1.4px] uppercase mb-4" style={{ color: 'var(--accent-deep)' }}>Add Photos</div>
-                {chatPhotosLoading && <div className="text-xs mb-2" style={{ color: 'var(--text-faint)' }}>Loading…</div>}
-                <PhotoRow photos={chatPhotos.map((p) => p.url)} onAdd={addChatPhoto} onRemove={removeChatPhoto} />
+                <PhotoRow photos={photos} onAdd={addPhoto} onRemove={removePhoto} />
               </div>
 
               <div>
