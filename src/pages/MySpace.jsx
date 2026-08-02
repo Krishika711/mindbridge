@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import emailjs from 'emailjs-com';
 import MoodBackground from '../components/MoodBackground';
 import Header from '../components/Header';
 import { HelpButton } from '../components/ui/Misc';
@@ -12,58 +13,26 @@ import DrawCanvas from '../components/DrawCanvas';
 import VoiceNotes from '../components/VoiceNotes';
 import FloatingHope from '../components/FloatingHope';
 
-// Real session -> its Supabase access token. Guest -> a short-lived signed
-// token from /api/guest-token, cached per tab so we don't mint a new one on
-// every single message. Neither path identifies who a Guest is — it's an
-// anti-abuse gate, not an account.
-async function getAuthHeaders(session) {
-  if (session?.access_token) {
-    return { Authorization: `Bearer ${session.access_token}` };
-  }
-  let token = sessionStorage.getItem('guestToken');
-  if (!token) {
-    try {
-      const res = await fetch('/api/guest-token', { method: 'POST' });
-      if (res.ok) {
-        const data = await res.json();
-        token = data.token;
-        sessionStorage.setItem('guestToken', token);
-      }
-    } catch (err) {
-      console.error('guest token fetch failed:', err.message);
-    }
-  }
-  return token ? { 'X-Guest-Token': token } : {};
-}
-
-async function claudeScore(messages, signal, extraHeaders = {}, attempt = 0) {
+async function claudeScore(messages, signal) {
   const history = messages.map((m) => `${m.from === 'user' ? 'User' : 'AI'}: ${m.text || '[shared a drawing]'}`).join('\n');
   try {
     const res = await fetch('/api/score', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...extraHeaders },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ history }),
       signal,
     });
     if (!res.ok) throw new Error(`score failed ${res.status}`);
     return await res.json();
-  } catch (err) {
-    if (err.name === 'AbortError') throw err; // an intentional cancel, not a failure — don't retry or mask it
-    if (attempt < 1) {
-      await new Promise((r) => setTimeout(r, 800));
-      return claudeScore(messages, signal, extraHeaders, attempt + 1);
-    }
-    // Never fabricate a safe result on failure. An unscored message is not
-    // the same thing as a message scored "okay" — treating it that way is
-    // exactly what could hide a real crisis during a backend hiccup.
-    return { crisis_risk: null, theme: 'unknown', needs_alert: false, failed: true };
+  } catch {
+    return { crisis_risk: 0, theme: 'okay', needs_alert: false };
   }
 }
 
-async function claudeRespond(messages, signal, extraHeaders = {}) {
+async function claudeRespond(messages, signal) {
   const res = await fetch('/api/chat', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...extraHeaders },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ messages }),
     signal,
   });
@@ -72,10 +41,10 @@ async function claudeRespond(messages, signal, extraHeaders = {}) {
   return data.text;
 }
 
-async function claudeRespondToImage(imageDataUrl, signal, extraHeaders = {}) {
+async function claudeRespondToImage(imageDataUrl, signal) {
   const res = await fetch('/api/chat-vision', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...extraHeaders },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ imageDataUrl }),
     signal,
   });
@@ -84,10 +53,10 @@ async function claudeRespondToImage(imageDataUrl, signal, extraHeaders = {}) {
   return data.text;
 }
 
-async function claudeRespondToVoice(audioDataUrl, signal, extraHeaders = {}) {
+async function claudeRespondToVoice(audioDataUrl, signal) {
   const res = await fetch('/api/chat-voice', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...extraHeaders },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ audioDataUrl }),
     signal,
   });
@@ -97,19 +66,14 @@ async function claudeRespondToVoice(audioDataUrl, signal, extraHeaders = {}) {
 }
 
 async function sendEmergencyAlert(contactName, contactEmail, userName, triggerMessage, riskLevel) {
-  const res = await fetch('/api/send-alert', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contact_name: contactName,
-      contact_email: contactEmail,
-      user_name: userName,
-      message: triggerMessage,
-      risk_level: riskLevel,
-    }),
-  });
-  if (!res.ok) throw new Error(`send-alert failed ${res.status}`);
-  return res.json();
+  const publicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
+  if (!publicKey) throw new Error('VITE_EMAILJS_PUBLIC_KEY is missing at build time — check Vercel env vars and redeploy.');
+  emailjs.init(publicKey);
+  return emailjs.send(
+    import.meta.env.VITE_EMAILJS_SERVICE_ID,
+    import.meta.env.VITE_EMAILJS_TEMPLATE_ID,
+    { to_name: contactName, to_email: contactEmail, user_name: userName || 'Someone you care about', message: triggerMessage, risk_level: riskLevel, app_name: 'MindBridge+' }
+  );
 }
 
 function formatDateLabel(iso) {
@@ -166,34 +130,6 @@ function PhotoRow({ small = false, photos, onAdd, onRemove }) {
       ))}
       <input id={inputId} type="file" accept="image/*" multiple onChange={handleFiles} className="hidden" />
       <label htmlFor={inputId} className={`${size} rounded-xl flex items-center justify-center cursor-pointer text-xl shrink-0`}
-        style={{ border: '1.5px dashed var(--card-border)', color: 'var(--accent-deep)' }}>+</label>
-    </div>
-  );
-}
-
-function ChatPhotoGrid({ photos, onAdd, onRemove, onOpen }) {
-  const handleFiles = (e) => {
-    const files = Array.from(e.target.files || []);
-    files.forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = () => onAdd(reader.result);
-      reader.readAsDataURL(file);
-    });
-    e.target.value = '';
-  };
-  return (
-    <div className="grid grid-cols-4 gap-2.5">
-      {photos.map((p) => (
-        <div key={p.id} className="aspect-square rounded-xl relative overflow-hidden group" style={{ border: '1px solid var(--card-border)' }}>
-          <button onClick={() => onOpen(p)} className="w-full h-full block" aria-label="Open photo">
-            <img src={p.mediaUrl} alt="" className="w-full h-full object-cover" />
-          </button>
-          <button onClick={(e) => { e.stopPropagation(); onRemove(p.id); }} className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full text-[9px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-            style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }} aria-label="Remove photo">✕</button>
-        </div>
-      ))}
-      <input id="chat-photo-input" type="file" accept="image/*" multiple onChange={handleFiles} className="hidden" />
-      <label htmlFor="chat-photo-input" className="aspect-square rounded-xl flex items-center justify-center cursor-pointer text-xl shrink-0"
         style={{ border: '1.5px dashed var(--card-border)', color: 'var(--accent-deep)' }}>+</label>
     </div>
   );
@@ -392,10 +328,9 @@ function JournalMediaThumb({ entry, onOpen }) {
   );
 }
 
-function JournalLightbox({ entry, onClose, onUpdate, onDelete, isDrawing = false, onSaveDrawing }) {
+function JournalLightbox({ entry, onClose, onUpdate, onDelete }) {
   const [title, setTitle] = useState(entry.title || '');
   const [saving, setSaving] = useState(false);
-  const [editingDrawing, setEditingDrawing] = useState(false);
 
   const save = async () => {
     setSaving(true);
@@ -418,22 +353,8 @@ function JournalLightbox({ entry, onClose, onUpdate, onDelete, isDrawing = false
         style={{ width: 'min(480px, 92vw)', background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}
       >
         <button onClick={onClose} className="absolute top-3 right-3 w-7 h-7 rounded-full flex items-center justify-center text-sm z-10" style={{ background: 'var(--surface-strong)', color: 'var(--text-soft)' }}>✕</button>
-        {editingDrawing ? (
-          <div className="p-4" style={{ background: 'var(--surface)' }}>
-            <DrawCanvas
-              initialImage={entry.mediaUrl}
-              onSaved={async (path) => {
-                setSaving(true);
-                await onSaveDrawing(entry.id, path);
-                setSaving(false);
-                setEditingDrawing(false);
-              }}
-            />
-          </div>
-        ) : (
-          entry.mediaUrl && (
-            <img src={entry.mediaUrl} alt="" className="w-full object-contain" style={{ maxHeight: '65vh', background: 'var(--surface)' }} />
-          )
+        {entry.mediaUrl && (
+          <img src={entry.mediaUrl} alt="" className="w-full object-contain" style={{ maxHeight: '65vh', background: 'var(--surface)' }} />
         )}
         <div className="p-5">
           <input
@@ -447,11 +368,6 @@ function JournalLightbox({ entry, onClose, onUpdate, onDelete, isDrawing = false
             <button onClick={remove} className="text-xs font-medium" style={{ color: 'var(--text-faint)' }}>Delete</button>
             <div className="flex items-center gap-2">
               <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{entry.date}</div>
-              {isDrawing && !editingDrawing && (
-                <button onClick={() => setEditingDrawing(true)} className="text-xs font-semibold px-3.5 py-1.5 rounded-full" style={{ border: '1px solid var(--card-border)', color: 'var(--accent-deep)' }}>
-                  Edit drawing
-                </button>
-              )}
               <button onClick={save} disabled={saving} className="text-xs font-semibold px-3.5 py-1.5 rounded-full" style={{ border: '1px solid var(--card-border)', color: 'var(--text-soft)', opacity: saving ? 0.6 : 1 }}>
                 {saving ? 'Saving…' : 'Save name'}
               </button>
@@ -478,16 +394,9 @@ const HISTORY_CATEGORIES = [
   { key: 'photo', label: 'Photos', hint: 'Snapshots you can watch back — edit the name anytime.' },
 ];
 
-const HISTORY_SIZE_PRESETS = {
-  sm: 'max-w-md max-h-[55vh]',
-  md: 'max-w-2xl max-h-[85vh]',
-  lg: 'max-w-5xl max-h-[92vh]',
-};
-
-function HistoryOverlay({ entries, loading, onClose, onUpdate, onDelete, onDeleteField, onSaveDrawing }) {
+function HistoryOverlay({ entries, loading, onClose, onUpdate, onDelete, onDeleteField }) {
   const [category, setCategory] = useState('text');
   const [lightboxEntry, setLightboxEntry] = useState(null);
-  const [size, setSize] = useState('md');
 
   const grouped = HISTORY_CATEGORIES.map((c) => ({
     ...c,
@@ -504,26 +413,13 @@ function HistoryOverlay({ entries, loading, onClose, onUpdate, onDelete, onDelet
     <div className="fixed inset-0 z-50 flex items-center justify-center p-5" style={{ background: 'rgba(0,0,0,0.5)' }} onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
-        className={`w-full ${HISTORY_SIZE_PRESETS[size]} flex flex-col md:flex-row rounded-2xl overflow-hidden transition-[max-width,max-height] duration-200`}
+        className="w-full max-w-2xl max-h-[85vh] flex flex-col md:flex-row rounded-2xl overflow-hidden"
         style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}
       >
         {/* Left: category rail — mirrors the journal editor's sidebar */}
         <div className="w-full md:w-52 shrink-0 flex flex-col overflow-hidden border-b md:border-b-0 md:border-r" style={{ background: 'var(--surface)', borderColor: 'var(--card-border)' }}>
           <div className="hidden md:flex items-center justify-between px-4 py-3.5 shrink-0" style={{ borderBottom: '1px solid var(--card-border)' }}>
             <div className="text-[15px] font-semibold" style={{ color: 'var(--text)' }}>History</div>
-            <div className="flex items-center gap-1">
-              {['sm', 'md', 'lg'].map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setSize(s)}
-                  title={s === 'sm' ? 'Minimize' : s === 'md' ? 'Default size' : 'Maximize'}
-                  className="w-5 h-5 rounded-full text-[9.5px] font-bold flex items-center justify-center"
-                  style={size === s ? { background: 'var(--card-bg)', color: 'var(--accent-deep)' } : { color: 'var(--text-faint)' }}
-                >
-                  {s === 'sm' ? 'S' : s === 'md' ? 'M' : 'L'}
-                </button>
-              ))}
-            </div>
           </div>
           <div className="flex md:flex-col p-2 gap-1 overflow-x-auto md:overflow-visible">
             {grouped.map((c) => (
@@ -546,17 +442,7 @@ function HistoryOverlay({ entries, loading, onClose, onUpdate, onDelete, onDelet
           <div className="flex items-center justify-between px-5 py-3.5 shrink-0" style={{ borderBottom: '1px solid var(--card-border)' }}>
             <div className="text-[15px] font-semibold md:hidden" style={{ color: 'var(--text)' }}>History</div>
             <p className="text-xs hidden md:block" style={{ color: 'var(--text-faint)' }}>{active.hint}</p>
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1 md:hidden">
-                {['sm', 'md', 'lg'].map((s) => (
-                  <button key={s} onClick={() => setSize(s)} className="w-5 h-5 rounded-full text-[9.5px] font-bold flex items-center justify-center"
-                    style={size === s ? { background: 'var(--surface-strong)', color: 'var(--accent-deep)' } : { color: 'var(--text-faint)' }}>
-                    {s === 'sm' ? 'S' : s === 'md' ? 'M' : 'L'}
-                  </button>
-                ))}
-              </div>
-              <button onClick={onClose} className="w-6 h-6 rounded-full flex items-center justify-center text-xs shrink-0" style={{ color: 'var(--text-faint)' }}>✕</button>
-            </div>
+            <button onClick={onClose} className="w-6 h-6 rounded-full flex items-center justify-center text-xs shrink-0" style={{ color: 'var(--text-faint)' }}>✕</button>
           </div>
           <p className="text-xs px-5 pt-3 md:hidden" style={{ color: 'var(--text-faint)' }}>{active.hint}</p>
 
@@ -600,11 +486,6 @@ function HistoryOverlay({ entries, loading, onClose, onUpdate, onDelete, onDelet
           onClose={() => setLightboxEntry(null)}
           onUpdate={async (id, title) => { await onUpdate(id, title); setLightboxEntry((cur) => (cur ? { ...cur, text_content: title } : cur)); }}
           onDelete={(id) => (lightboxEntry._deleteField ? onDeleteField(id, lightboxEntry._deleteField) : onDelete(id))}
-          isDrawing={category === 'drawing'}
-          onSaveDrawing={async (id, path) => {
-            await onSaveDrawing(id, path);
-            setLightboxEntry(null);
-          }}
         />
       )}
     </div>
@@ -625,12 +506,13 @@ export default function MySpace() {
   const [showStormy, setShowStormy] = useState(false);
   const [showGuestGate, setShowGuestGate] = useState(false);
   const [photos, setPhotos] = useState([]);
+  const [chatPhotos, setChatPhotos] = useState([]);
+  const [chatPhotosLoading, setChatPhotosLoading] = useState(true);
   const [thinking, setThinking] = useState(false);
   const [crisisVisible, setCrisisVisible] = useState(false);
-  const [scoreCheckFailed, setScoreCheckFailed] = useState(false);
   const [alertSent, setAlertSent] = useState(false);
-  const [contactName, setContactName] = useState('');
-  const [contactEmail, setContactEmail] = useState('');
+  const [alertedContactNames, setAlertedContactNames] = useState([]);
+  const [emergencyContacts, setEmergencyContacts] = useState([]);
   const [editingIndex, setEditingIndex] = useState(null);
   const [editingText, setEditingText] = useState('');
   const [showHistory, setShowHistory] = useState(false);
@@ -642,12 +524,6 @@ export default function MySpace() {
   const [showChatHistory, setShowChatHistory] = useState(false);
   const [openEntryId, setOpenEntryId] = useState(null);
   const [entryTitle, setEntryTitle] = useState('');
-  // Quick-tool entry (drawing/voice recorded from the chat sidebar's tool tray) is
-  // tracked separately from editingEntryId (the Journal tab's currently-open entry)
-  // so recording here never overwrites whichever journal entry happens to be open.
-  const [quickEntryId, setQuickEntryId] = useState(null);
-  const [quickNote, setQuickNote] = useState('');
-  const [openChatPhoto, setOpenChatPhoto] = useState(null);
   const threadEndRef = useRef(null);
   const controllerRef = useRef(null);
 
@@ -739,8 +615,6 @@ export default function MySpace() {
     setActiveSessionId(crypto.randomUUID());
     setThread([GREETING]);
     setEditingIndex(null);
-    setQuickEntryId(null);
-    setQuickNote('');
   };
 
   useEffect(() => {
@@ -751,10 +625,9 @@ export default function MySpace() {
       .from('emergency_contacts')
       .select('contact_name, contact_email')
       .eq('user_id', session.user.id)
-      .maybeSingle()
       .then(({ data, error }) => {
-        if (error) { console.error('emergency contact load failed:', error.message); return; }
-        if (data) { setContactName(data.contact_name || ''); setContactEmail(data.contact_email || ''); }
+        if (error) { console.error('emergency contacts load failed:', error.message); return; }
+        setEmergencyContacts(data || []);
       });
   }, [session, loadSessions]);
 
@@ -799,6 +672,7 @@ export default function MySpace() {
   // Merges into the currently-open entry (editingEntryId) if there is one,
   // otherwise starts a new entry and keeps it open so the next save (from
   // another tab) merges into the same row — that continues until "+ New Entry".
+  // Only used for text now — see saveDrawingEntry/saveVoiceEntry below.
   const saveJournalEntry = async (fields) => {
     if (!session) return;
     if (editingEntryId) {
@@ -816,6 +690,23 @@ export default function MySpace() {
       setEditingEntryId(data.id);
       loadJournalEntries();
     }
+  };
+
+  // Drawings and voice notes always become their own fresh entry — they never
+  // merge into whatever entry happened to still be "open" from browsing the list,
+  // which was silently overwriting older entries' media with newer recordings.
+  const saveDrawingEntry = async (path) => {
+    if (!session) return;
+    const { error } = await supabase.from('journal_entries').insert({ user_id: session.user.id, type: 'drawing', drawing_path: path });
+    if (error) { console.error('journal entry save failed:', error.message); return; }
+    loadJournalEntries();
+  };
+
+  const saveVoiceEntry = async (path) => {
+    if (!session) return;
+    const { error } = await supabase.from('journal_entries').insert({ user_id: session.user.id, type: 'voice', voice_path: path });
+    if (error) { console.error('journal entry save failed:', error.message); return; }
+    loadJournalEntries();
   };
 
   const updateJournalEntry = async (id, fields) => {
@@ -870,66 +761,13 @@ export default function MySpace() {
     saveJournalEntry({ text_content: text });
   };
 
-  // Mirrors saveJournalEntry, but merges into quickEntryId instead of
-  // editingEntryId — keeps the chat sidebar's quick tools (write/draw/voice)
-  // from ever overwriting whatever entry happens to be open in the Journal tab.
-  const saveQuickEntry = async (fields) => {
+  // Photos ("Add Photos" quick strip in the sidebar) stay standalone —
+  // not part of the merge-into-current-entry behavior below.
+  const savePhotoEntry = async (path) => {
     if (!session) return;
-    if (quickEntryId) {
-      const { error } = await supabase.from('journal_entries').update(fields).eq('id', quickEntryId);
-      if (error) { console.error('quick entry save failed:', error.message); return; }
-      loadJournalEntries();
-    } else {
-      const { data, error } = await supabase
-        .from('journal_entries')
-        .insert({ user_id: session.user.id, type: 'text', ...fields })
-        .select('id')
-        .single();
-      if (error) { console.error('quick entry save failed:', error.message); return; }
-      setQuickEntryId(data.id);
-      loadJournalEntries();
-    }
-  };
-
-  const saveQuickNote = () => {
-    const text = quickNote.trim();
-    if (!text) return;
-    saveQuickEntry({ text_content: text });
-  };
-
-  // Photos saved from the Journal tab's own photo row stay standalone — not part
-  // of the merge-into-current-entry behavior below, and they show up in Quiet
-  // Mode's History. Photos added from the chat sidebar use type 'chat-photo'
-  // instead, so they never land in Quiet Mode's history.
-  const savePhotoEntry = async (path, type = 'photo') => {
-    if (!session) return;
-    const { error } = await supabase.from('journal_entries').insert({ user_id: session.user.id, type, media_path: path });
+    const { error } = await supabase.from('journal_entries').insert({ user_id: session.user.id, type: 'photo', media_path: path });
     if (error) { console.error('journal entry save failed:', error.message); return; }
     loadJournalEntries();
-  };
-
-  // Chat-section photo gallery: lives entirely outside Quiet Mode. Persisted
-  // as type 'chat-photo' so it's excluded from journal entry lists and the
-  // Quiet Mode History overlay, but still survives a page reload.
-  const chatPhotos = journalEntries.filter((e) => e.type === 'chat-photo');
-
-  const addChatPhoto = async (src) => {
-    if (isGuest) { setShowGuestGate(true); return; }
-    if (!session) return;
-    const blob = await (await fetch(src)).blob();
-    const path = `${session.user.id}/chat-gallery-${Date.now()}.png`;
-    const { error: uploadErr } = await supabase.storage.from('media').upload(path, blob, { contentType: blob.type || 'image/png' });
-    if (uploadErr) { console.error('chat gallery photo upload failed:', uploadErr.message); return; }
-    savePhotoEntry(path, 'chat-photo');
-  };
-
-  const removeChatPhoto = (id) => deleteJournalEntry(id);
-
-  // A saved drawing re-opened from Quiet Mode History can be edited in place;
-  // this just points the DrawCanvas save target back at the same entry.
-  const saveDrawingEdit = async (id, path) => {
-    await updateJournalEntry(id, { drawing_path: path });
-    await loadJournalEntries();
   };
 
   const selectJournalEntry = (entry) => {
@@ -955,6 +793,53 @@ export default function MySpace() {
     savePhotoEntry(path);
   };
   const removePhoto = (i) => setPhotos((p) => p.filter((_, idx) => idx !== i));
+
+  // Responding-mode "Add Photos" gallery — deliberately its own table (chat_photos),
+  // completely separate from journal_entries, so these never show up in Quiet Mode's History.
+  const loadChatPhotos = useCallback(async () => {
+    if (!session) { setChatPhotosLoading(false); return; }
+    setChatPhotosLoading(true);
+    const { data, error } = await supabase
+      .from('chat_photos')
+      .select('id, storage_path, created_at')
+      .eq('user_id', session.user.id)
+      .order('created_at', { ascending: false });
+    setChatPhotosLoading(false);
+    if (error) { console.error('chat photos load failed:', error.message); return; }
+    const resolved = await Promise.all(
+      (data || []).map(async (p) => {
+        const { data: signed, error: signErr } = await supabase.storage.from('media').createSignedUrl(p.storage_path, 3600);
+        if (signErr) { console.error('chat photo signed url failed:', signErr.message); return null; }
+        return { id: p.id, storagePath: p.storage_path, url: signed.signedUrl };
+      })
+    );
+    setChatPhotos(resolved.filter(Boolean));
+  }, [session]);
+
+  useEffect(() => { loadChatPhotos(); }, [loadChatPhotos]);
+
+  const addChatPhoto = async (src) => {
+    if (isGuest) { setShowGuestGate(true); return; }
+    if (!session) return;
+    const blob = await (await fetch(src)).blob();
+    const path = `${session.user.id}/chat-photo-${Date.now()}.png`;
+    const { error: uploadErr } = await supabase.storage.from('media').upload(path, blob, { contentType: blob.type || 'image/png' });
+    if (uploadErr) { console.error('chat photo upload failed:', uploadErr.message); return; }
+    const { data, error } = await supabase.from('chat_photos').insert({ user_id: session.user.id, storage_path: path }).select('id').single();
+    if (error) { console.error('chat photo save failed:', error.message); return; }
+    const { data: signed } = await supabase.storage.from('media').createSignedUrl(path, 3600);
+    setChatPhotos((p) => [{ id: data.id, storagePath: path, url: signed?.signedUrl }, ...p]);
+  };
+
+  const removeChatPhoto = async (index) => {
+    const target = chatPhotos[index];
+    if (!target) return;
+    setChatPhotos((p) => p.filter((_, i) => i !== index));
+    const { error: storageErr } = await supabase.storage.from('media').remove([target.storagePath]);
+    if (storageErr) console.error('chat photo file delete failed:', storageErr.message);
+    const { error } = await supabase.from('chat_photos').delete().eq('id', target.id);
+    if (error) console.error('chat photo delete failed:', error.message);
+  };
 
   const guardGuestWrite = (nextValue) => {
     if (isGuest && nextValue.length === 1) { setShowGuestGate(true); return false; }
@@ -999,8 +884,7 @@ export default function MySpace() {
     const controller = new AbortController();
     controllerRef.current = controller;
     try {
-      const headers = await getAuthHeaders(session);
-      const reply = await claudeRespondToVoice(dataUrl, controller.signal, headers);
+      const reply = await claudeRespondToVoice(dataUrl, controller.signal);
       const savedAi = await saveMessage('ai', reply);
       setThread((t) => [...t, { from: 'wisp', text: reply, image: null, audio: null, id: savedAi?.id ?? null, created_at: savedAi?.created_at ?? null }]);
       loadSessions();
@@ -1013,22 +897,20 @@ export default function MySpace() {
   };
 
 
-  const runCrisisCheck = async (nextThread, triggerText, signal, headers) => {
-    const score = await claudeScore(nextThread, signal, headers);
-    if (score?.failed) {
-      setScoreCheckFailed(true);
-      return;
-    }
-    setScoreCheckFailed(false);
+  const runCrisisCheck = async (nextThread, triggerText, signal) => {
+    const score = await claudeScore(nextThread, signal);
     if (score?.needs_alert && score.crisis_risk >= 7) {
       setCrisisVisible(true);
-      if (contactName && contactEmail) {
-        try {
-          await sendEmergencyAlert(contactName, contactEmail, userName, triggerText, score.crisis_risk);
-          setAlertSent(true);
-        } catch (emailErr) {
-          console.error('emergency alert email failed:', emailErr?.text || emailErr?.message || emailErr);
-        }
+      if (emergencyContacts.length) {
+        const results = await Promise.allSettled(
+          emergencyContacts.map((c) => sendEmergencyAlert(c.contact_name, c.contact_email, userName, triggerText, score.crisis_risk))
+        );
+        const sentTo = [];
+        results.forEach((r, i) => {
+          if (r.status === 'fulfilled') sentTo.push(emergencyContacts[i].contact_name);
+          else console.error('emergency alert email failed:', emergencyContacts[i].contact_email, r.reason?.text || r.reason?.message || r.reason);
+        });
+        if (sentTo.length) { setAlertSent(true); setAlertedContactNames(sentTo); }
       }
     }
   };
@@ -1048,8 +930,7 @@ export default function MySpace() {
     const controller = new AbortController();
     controllerRef.current = controller;
     try {
-      const headers = await getAuthHeaders(session);
-      const [reply] = await Promise.all([claudeRespond(nextThread, controller.signal, headers), runCrisisCheck(nextThread, text, controller.signal, headers)]);
+      const [reply] = await Promise.all([claudeRespond(nextThread, controller.signal), runCrisisCheck(nextThread, text, controller.signal)]);
       const savedAi = await saveMessage('ai', reply);
       setThread((t) => [...t, { from: 'wisp', text: reply, image: null, id: savedAi?.id ?? null, created_at: savedAi?.created_at ?? null }]);
       loadSessions();
@@ -1085,8 +966,7 @@ export default function MySpace() {
     const controller = new AbortController();
     controllerRef.current = controller;
     try {
-      const headers = await getAuthHeaders(session);
-      const reply = await claudeRespondToImage(dataUrl, controller.signal, headers);
+      const reply = await claudeRespondToImage(dataUrl, controller.signal);
       const savedAi = await saveMessage('ai', reply);
       setThread((t) => [...t, { from: 'wisp', text: reply, image: null, id: savedAi?.id ?? null, created_at: savedAi?.created_at ?? null }]);
       loadSessions();
@@ -1129,8 +1009,7 @@ export default function MySpace() {
     const controller = new AbortController();
     controllerRef.current = controller;
     try {
-      const headers = await getAuthHeaders(session);
-      const [reply] = await Promise.all([claudeRespond(truncated, controller.signal, headers), runCrisisCheck(truncated, newText, controller.signal, headers)]);
+      const [reply] = await Promise.all([claudeRespond(truncated, controller.signal), runCrisisCheck(truncated, newText, controller.signal)]);
       const savedAi = await saveMessage('ai', reply);
       setThread((t) => [...t, { from: 'wisp', text: reply, image: null, id: savedAi?.id ?? null, created_at: savedAi?.created_at ?? null }]);
       loadSessions();
@@ -1177,16 +1056,9 @@ export default function MySpace() {
               <div className="flex items-start justify-between gap-3 rounded-2xl px-4 py-3 mb-3.5 text-[12.5px] leading-relaxed" style={{ background: 'var(--surface-strong)', border: '1px solid var(--card-border)', color: 'var(--text-soft)' }}>
                 <span>
                   🌙 It is understanble and you're not alone.
-                  {alertSent && contactName && <span style={{ color: 'var(--accent-deep)' }}> · {contactName} ko quietly inform kar diya gaya hai.</span>}
+                  {alertSent && alertedContactNames.length > 0 && <span style={{ color: 'var(--accent-deep)' }}> · {alertedContactNames.join(', ')} ko quietly inform kar diya gaya hai.</span>}
                 </span>
                 <button onClick={() => setCrisisVisible(false)} style={{ color: 'var(--text-faint)' }}>✕</button>
-              </div>
-            )}
-
-            {scoreCheckFailed && !crisisVisible && (
-              <div className="flex items-start justify-between gap-3 rounded-2xl px-4 py-3 mb-3.5 text-[12.5px] leading-relaxed" style={{ background: 'var(--surface)', border: '1px solid var(--accent-deep)', color: 'var(--text-soft)' }}>
-                <span>Couldn't fully check in on your last message — will try again on the next one.</span>
-                <button onClick={() => setScoreCheckFailed(false)} style={{ color: 'var(--text-faint)' }}>✕</button>
               </div>
             )}
 
@@ -1255,22 +1127,14 @@ export default function MySpace() {
                       <button onClick={() => setOpenTool(null)} style={{ color: 'var(--text-faint)' }}>✕</button>
                     </div>
                     {openTool === 'write' && (
-                      <>
-                        <textarea value={quickNote} onChange={(e) => { if (guardGuestWrite(e.target.value)) setQuickNote(e.target.value); }}
-                          placeholder="Jot something down while you chat..." className="w-full resize-none outline-none border-none bg-transparent text-sm leading-relaxed min-h-25" style={{ color: 'var(--text)' }} />
-                        <div className="flex justify-end pt-2">
-                          <button onClick={saveQuickNote} disabled={!quickNote.trim()} className="text-[12.5px] font-semibold px-3 py-1.5"
-                            style={{ color: 'var(--accent-deep)', opacity: quickNote.trim() ? 1 : 0.4 }}>
-                            Save
-                          </button>
-                        </div>
-                      </>
+                      <textarea value={journal} onChange={(e) => { if (guardGuestWrite(e.target.value)) setJournal(e.target.value); }}
+                        placeholder="Jot something down while you chat..." className="w-full resize-none outline-none border-none bg-transparent text-sm leading-relaxed min-h-25" style={{ color: 'var(--text)' }} />
                     )}
                     {openTool === 'draw' && (
-                      isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to save your drawings" /> : <DrawCanvas onSendToChat={sendDrawingToChat} onSaved={(path) => saveQuickEntry({ drawing_path: path })} />
+                      isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to save your drawings" /> : <DrawCanvas onSendToChat={sendDrawingToChat} onSaved={(path) => saveJournalEntry({ drawing_path: path })} />
                     )}
                     {openTool === 'voice' && (
-                      isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to record voice notes" /> : <VoiceNotes onSaved={(path) => saveQuickEntry({ voice_path: path })} onSendToChat={sendVoiceToChat} />
+                      isGuest ? <GuestLockedPane onUnlock={() => setShowGuestGate(true)} label="Sign in to record voice notes" /> : <VoiceNotes onSaved={(path) => saveJournalEntry({ voice_path: path })} onSendToChat={sendVoiceToChat} />
                     )}
                   </div>
                 </motion.div>
@@ -1311,7 +1175,8 @@ export default function MySpace() {
 
               <div>
                 <div className="text-[11.5px] font-bold tracking-[1.4px] uppercase mb-4" style={{ color: 'var(--accent-deep)' }}>Add Photos</div>
-                <ChatPhotoGrid photos={chatPhotos} onAdd={addChatPhoto} onRemove={removeChatPhoto} onOpen={setOpenChatPhoto} />
+                {chatPhotosLoading && <div className="text-xs mb-2" style={{ color: 'var(--text-faint)' }}>Loading…</div>}
+                <PhotoRow photos={chatPhotos.map((p) => p.url)} onAdd={addChatPhoto} onRemove={removeChatPhoto} />
               </div>
 
               <div>
@@ -1336,16 +1201,16 @@ export default function MySpace() {
                   <div>
                     <div className="text-[15px] font-semibold" style={{ color: 'var(--text)' }}>Journal</div>
                     <div className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
-                      {journalEntries.filter((e) => !['photo','chat-photo'].includes(e.type)).length} entries
+                      {journalEntries.filter((e) => e.type !== 'photo').length} entries
                     </div>
                   </div>
                   <button onClick={startNewJournalEntry} className="w-7 h-7 rounded-full flex items-center justify-center text-lg" style={{ color: 'var(--accent-deep)' }} title="New entry">+</button>
                 </div>
                 <div className="flex-1 overflow-y-auto">
-                  {journalEntries.filter((e) => !['photo','chat-photo'].includes(e.type)).length === 0 && (
+                  {journalEntries.filter((e) => e.type !== 'photo').length === 0 && (
                     <div className="text-xs px-4 py-4" style={{ color: 'var(--text-faint)' }}>No entries yet.</div>
                   )}
-                  {journalEntries.filter((e) => !['photo','chat-photo'].includes(e.type)).map((e) => {
+                  {journalEntries.filter((e) => e.type !== 'photo').map((e) => {
                     const titleFallback = e.drawing_path && e.voice_path ? 'Drawing + Voice' : e.drawing_path ? 'Drawing' : e.voice_path ? 'Voice note' : 'New Entry';
                     const preview = e.text_content ? e.text_content.slice(0, 34) : (e.drawing_path || e.voice_path ? '' : 'Empty entry');
                     return (
@@ -1435,15 +1300,7 @@ export default function MySpace() {
       <StormyAlert open={showStormy} onClose={() => setShowStormy(false)} />
       <GuestSignInPrompt open={showGuestGate} onClose={() => setShowGuestGate(false)} />
       {showHistory && (
-        <HistoryOverlay entries={journalEntries} loading={entriesLoading} onClose={() => setShowHistory(false)} onUpdate={updateJournalEntry} onDelete={deleteJournalEntry} onDeleteField={deleteJournalAttachment} onSaveDrawing={saveDrawingEdit} />
-      )}
-      {openChatPhoto && (
-        <JournalLightbox
-          entry={openChatPhoto}
-          onClose={() => setOpenChatPhoto(null)}
-          onUpdate={(id, fields) => updateJournalEntry(id, fields)}
-          onDelete={(id) => removeChatPhoto(id)}
-        />
+        <HistoryOverlay entries={journalEntries} loading={entriesLoading} onClose={() => setShowHistory(false)} onUpdate={updateJournalEntry} onDelete={deleteJournalEntry} onDeleteField={deleteJournalAttachment} />
       )}
     </div>
   );
