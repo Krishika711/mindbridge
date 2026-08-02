@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import emailjs from 'emailjs-com';
 import MoodBackground from '../components/MoodBackground';
 import Header from '../components/Header';
 import { HelpButton } from '../components/ui/Misc';
