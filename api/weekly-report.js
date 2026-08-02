@@ -1,4 +1,6 @@
 import { callGroq } from "./_groq.js";
+import { requireAppAccess } from "./_guestAuth.js";
+import { isRateLimited, getClientIp } from "./_rateLimit.js";
 
 function extractJson(raw) {
   const cleaned = raw.replace(/```json|```/g, "").trim();
@@ -71,6 +73,13 @@ Set concern.flagged to true only if the data shows a clear pattern of sustained 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     res.status(405).json({ error: "method_not_allowed" });
+    return;
+  }
+
+  if (!(await requireAppAccess(req, res))) return;
+
+  if (isRateLimited(`weekly-report:${getClientIp(req)}`, { limit: 5, windowMs: 60_000 })) {
+    res.status(429).json({ error: "rate_limited" });
     return;
   }
 
