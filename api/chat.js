@@ -1,4 +1,6 @@
 import { callGroq } from "./_groq.js";
+import { requireAppAccess } from "./_guestAuth.js";
+import { isRateLimited, getClientIp } from "./_rateLimit.js";
 
 // POST /api/chat  { messages: [{ from: 'user'|'ai', text }] }  →  { text }
 export default async function handler(req, res) {
@@ -6,6 +8,14 @@ export default async function handler(req, res) {
     res.status(405).json({ error: "method_not_allowed" });
     return;
   }
+
+  if (!(await requireAppAccess(req, res))) return;
+
+  if (isRateLimited(`chat:${getClientIp(req)}`, { limit: 20, windowMs: 60_000 })) {
+    res.status(429).json({ error: "rate_limited" });
+    return;
+  }
+
   try {
     const { messages } = req.body;
     const history = messages.map((m) => ({
