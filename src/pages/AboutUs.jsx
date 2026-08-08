@@ -39,10 +39,6 @@ export default function AboutUs() {
               — the MindBridge+ team
             </p>
           </div>
-
-          <p className="mt-10 text-xs" style={{ color: 'var(--text-faint)' }}>
-            (This page is a placeholder — write whatever you'd like here.)
-          </p>
         </div>
       </main>
 
