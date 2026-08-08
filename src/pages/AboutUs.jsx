@@ -32,8 +32,7 @@ export default function AboutUs() {
               with you, whether today is a sunny one or a stormy one.
             </p>
             <p>
-              Everything here — the moods, the journal, the people you trust, the good moments you save
-              for harder days — belongs to you. We're just here to hold the space.
+              We hope you find it useful.
             </p>
             <p className="italic" style={{ fontFamily: 'var(--font-display)', fontSize: 19, color: 'var(--accent-deep)' }}>
               — the MindBridge+ team
