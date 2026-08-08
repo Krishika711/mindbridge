@@ -32,7 +32,7 @@ export default function AboutUs() {
               with you, whether today is a sunny one or a stormy one.
             </p>
             <p>
-              We hope you find it useful.
+              We hope you find it useful....
             </p>
             <p className="italic" style={{ fontFamily: 'var(--font-display)', fontSize: 19, color: 'var(--accent-deep)' }}>
               — the MindBridge+ team
